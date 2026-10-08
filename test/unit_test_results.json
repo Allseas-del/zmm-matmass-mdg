@@ -192,7 +192,7 @@
  {
   "name": "24a after reload: log and results of the last run available",
   "pass": true,
-  "info": "Last run: 10/8/2026, 3:23:43 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
+  "info": "Last run: 10/8/2026, 4:23:24 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "24 resume: results loaded, done products deselected",
@@ -227,7 +227,7 @@
  {
   "name": "25d end of run: log and results downloaded automatically, last run kept in the browser (after reload too)",
   "pass": true,
-  "info": "roundtrip_results_2026-10-08-13-23-45.csv, template_download_log_2026-10-08-13-23-46.txt, template_download_results_2026-10-08-13-23-46.csv | finished: 0 ok, 1 with errors of 1"
+  "info": "roundtrip_results_2026-10-08-14-23-25.csv, template_download_log_2026-10-08-14-23-25.txt, roundtrip_results_2026-10-08-14-23-25.csv, template_download_results_2026-10-08-14-23-25.csv | finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "27 read from SAP: criteria (starts with ZTEST, exclude ZTEST-003) → 2 products; selected fields of 3 sheets in the Product template (description EN, base unit), one $batch read, $select",
@@ -235,14 +235,19 @@
   "info": "2 product(s) found (0.0 s) | filter=startswith(Product,'ZTEST') and not (Product eq 'ZTEST-003') | ZTEST-001|M12X60|EN|Test bolt M12 x 40|PCE| ; ZTEST-002|M8X20|EN|Test gasket DN50|PCE| | marc=ZTEST-001|NL01|VB,ZTEST-002|NL01|ND | marm=ZTEST-001|BX|2.5 | batches=1"
  },
  {
+  "name": "27s read from SAP: commodity code STAWN selectable (\"V2 API (read only)\") and read from V2 A_ProductPlant-Commodity into the plant rows",
+  "pass": true,
+  "info": "false,true | ZTEST-001|NL01|84099900,ZTEST-002|NL01| | v2get=1"
+ },
+ {
   "name": "27a columns: not selected and empty hidden (BISMT), selected and keys visible (GROES, PRODUCT, BRGEW), grid shows only visible columns; mode set to Change",
   "pass": true,
-  "info": "hidden=true,false,false,false,true mode=change gridColumns=8 | 2 product(s) read · 0 error(s) · 3 sheet(s) with data · 295 column(s) hidden · 0.1 s"
+  "info": "hidden=true,false,false,false,true mode=change gridColumns=8 | 2 product(s) read · 0 error(s) · 3 sheet(s) with data · 294 column(s) hidden · 0.1 s"
  },
  {
   "name": "27b download: Product template with the SAP rows and hidden columns (ss:Hidden), loads again (hidden columns kept), Change on the unchanged file gives \"no differences\"",
   "pass": true,
-  "info": "Product_from_SAP_session_2026-10-08-13-23.xml rows=2 hiddenKept=true"
+  "info": "Product_from_SAP_session_2026-10-08-14-23.xml rows=2 hiddenKept=true"
  },
  {
   "name": "27c any template field as criterion: Plant NL01 and MRP type VB on the same plant row (ProductPlantSupplyPlanning filtered on Plant too), material number \"ztest\" upper-cased; not filterable field (BISMT) not offered; operators by type",
