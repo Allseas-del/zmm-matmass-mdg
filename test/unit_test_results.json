@@ -142,10 +142,10 @@
  {
   "name": "20f grid: STAWN column of Plant Data shown as custom-service field, not as \"not in API\"",
   "pass": true,
-  "info": "[\"\",\"STAWNcustom service: MARC-STAWN (ZMM_MATMASS_STAWN_SRV)\"]"
+  "info": "[\"\",\"STAWNcustom service: MARC-STAWN (ZMM_MATMASS_STAWN_O2)\"]"
  },
  {
-  "name": "20g change: commodity code sent to ZMM_MATMASS_STAWN_SRV ($batch, POST StawnSet) after the V4 change set; both counted (2 changes); old → new logged",
+  "name": "20g change: commodity code sent to ZMM_MATMASS_STAWN_O2 ($batch, POST setCode function import) after the V4 change set; both counted (2 changes); old → new logged",
   "pass": true,
   "info": "stawn=84099900 groes=M12X55 posts=1"
  },
@@ -165,7 +165,7 @@
   "info": ""
  },
  {
-  "name": "20k commodity code service (Gateway): POST without CSRF token → 403, $batch without token → 403 \"Required\"; nothing changed; the tool itself fetched a token",
+  "name": "20k commodity code service (Gateway): POST without CSRF token → 403, $batch without token → 403 \"Required\"; nothing changed; the tool itself fetched a token and took the function import name setCode from $metadata",
   "pass": true,
   "info": "403,403,Required"
  },
@@ -192,7 +192,7 @@
  {
   "name": "24a after reload: log and results of the last run available",
   "pass": true,
-  "info": "Last run: 10/8/2026, 3:05:06 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
+  "info": "Last run: 10/8/2026, 3:23:43 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "24 resume: results loaded, done products deselected",
@@ -212,7 +212,7 @@
  {
   "name": "25a internal numbering: product created through V2 (Product \"\", SAP unit), views and other basic data through V4; number in column SAP product",
   "pass": true,
-  "info": "v2post=2 targets=4001054,4001063, plants=1"
+  "info": "v2post=2 targets=4001020,4001029, plants=1"
  },
  {
   "name": "25b example template: download, load (2 products, 2 MARC, 2 MARD, 2 MBEW), no validation problems, V2 units M and AU",
@@ -227,7 +227,7 @@
  {
   "name": "25d end of run: log and results downloaded automatically, last run kept in the browser (after reload too)",
   "pass": true,
-  "info": "template_download_log_2026-10-08-13-05-08.txt, roundtrip_results_2026-10-08-13-05-07.csv, template_download_results_2026-10-08-13-05-08.csv | finished: 0 ok, 1 with errors of 1"
+  "info": "roundtrip_results_2026-10-08-13-23-45.csv, template_download_log_2026-10-08-13-23-46.txt, template_download_results_2026-10-08-13-23-46.csv | finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "27 read from SAP: criteria (starts with ZTEST, exclude ZTEST-003) → 2 products; selected fields of 3 sheets in the Product template (description EN, base unit), one $batch read, $select",
@@ -242,12 +242,12 @@
  {
   "name": "27b download: Product template with the SAP rows and hidden columns (ss:Hidden), loads again (hidden columns kept), Change on the unchanged file gives \"no differences\"",
   "pass": true,
-  "info": "Product_from_SAP_session_2026-10-08-13-05.xml rows=2 hiddenKept=true"
+  "info": "Product_from_SAP_session_2026-10-08-13-23.xml rows=2 hiddenKept=true"
  },
  {
   "name": "27c any template field as criterion: Plant NL01 and MRP type VB on the same plant row (ProductPlantSupplyPlanning filtered on Plant too), material number \"ztest\" upper-cased; not filterable field (BISMT) not offered; operators by type",
   "pass": true,
-  "info": "options=361 ops=eq,bt,sw | 1 product(s) found (0.1 s) | expected 1 | ProductPlant:Plant eq 'NL01' ; ProductPlantSupplyPlanning:MRPType eq 'VB' and Plant eq 'NL01' ; Product:startswith(Product,'ZTEST')"
+  "info": "options=361 ops=eq,bt,sw | 1 product(s) found (0.0 s) | expected 1 | ProductPlant:Plant eq 'NL01' ; ProductPlantSupplyPlanning:MRPType eq 'VB' and Plant eq 'NL01' ; Product:startswith(Product,'ZTEST')"
  },
  {
   "name": "26 no JavaScript errors on the page",

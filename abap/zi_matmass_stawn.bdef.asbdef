@@ -1,0 +1,9 @@
+// 5/7  Behavior Definition ZI_MATMASS_STAWN (implementation type unmanaged)
+unmanaged implementation in class zbp_i_matmass_stawn unique;
+
+define behavior for ZI_MATMASS_STAWN alias Stawn
+lock master
+authorization master ( global )
+{
+  static action setCode parameter ZA_MATMASS_STAWN_P result [1] ZA_MATMASS_STAWN_R;
+}

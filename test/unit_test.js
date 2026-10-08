@@ -123,7 +123,7 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   await page.click('#btnDry'); await page.waitForFunction(() => /Commodity code \(STAWN\) filled on 1 plant row/.test(fullLog.join('\n')));
   await page.click('#btnRun'); await waitIdle(); L = await logText(); st = await api('/__stats');
   const p1g = await api('/__product?id=ZTEST-001');
-  ok('20g change: commodity code sent to ZMM_MATMASS_STAWN_SRV ($batch, POST StawnSet) after the V4 change set; both counted (2 changes); old → new logged',
+  ok('20g change: commodity code sent to ZMM_MATMASS_STAWN_O2 ($batch, POST setCode function import) after the V4 change set; both counted (2 changes); old → new logged',
     p1g._ProductPlant[0].ZZ_STAWN === '84099900' && p1g.SizeOrDimensionText === 'M12X55' && /ZTEST-001 → ZTEST-001: 2 change\(s\)/.test(L) && /ZTEST-001 plant NL01: commodity code "" → "84099900"/.test(L) && st.stawnPosts >= 1,
     `stawn=${p1g._ProductPlant[0].ZZ_STAWN} groes=${p1g.SizeOrDimensionText} posts=${st.stawnPosts}`);
   await page.click('#btnRun'); await waitIdle();
@@ -135,16 +135,16 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = 'ABC'; });
   await page.click('#btnDry'); await page.waitForFunction(() => /must be digits/.test(fullLog.join('\n')));
   ok('20j dry run rejects a non-numeric commodity code', /ZTEST-001 plant NL01: commodity code "ABC" must be digits/.test(await logText()));
-  // CSRF on the custom Gateway service: a cross-site style POST (text/plain, no token) and a $batch without token are rejected
+  // CSRF on the RAP service (Gateway): a cross-site style POST (text/plain, no token) and a $batch without token are rejected
   const csrf = await page.evaluate(async () => {
-    const base = stawnBase(), body = JSON.stringify({ Material: 'ZTEST-001', Plant: 'NL01', Code: '11111111' });
-    const a = await fetch(withParams(base + 'StawnSet'), { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'text/plain' }, body });
+    const base = stawnBase();
+    const a = await fetch(withParams(base + "setCode?Material='ZTEST-001'&Plant='NL01'&Code='11111111'"), { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'text/plain' }, body: '' });
     const b = await fetch(withParams(base + '$batch'), { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'multipart/mixed;boundary=x' }, body: '--x--' });
     return [a.status, b.status, b.headers.get('x-csrf-token')].join(',');
   });
   const p1k = await api('/__product?id=ZTEST-001');
-  ok('20k commodity code service (Gateway): POST without CSRF token → 403, $batch without token → 403 "Required"; nothing changed; the tool itself fetched a token',
-    csrf === '403,403,Required' && p1k._ProductPlant[0].ZZ_STAWN !== '11111111' && /tokstawn-/.test(await page.evaluate(() => csrfStawn || '')), csrf);
+  ok('20k commodity code service (Gateway): POST without CSRF token → 403, $batch without token → 403 "Required"; nothing changed; the tool itself fetched a token and took the function import name setCode from $metadata',
+    csrf === '403,403,Required' && p1k._ProductPlant[0].ZZ_STAWN !== '11111111' && /tokstawn-/.test(await page.evaluate(() => csrfStawn || '')) && await page.evaluate(() => stawnFn) === 'setCode', csrf);
   await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = ''; sheets.S_MARA.rows[0].cells.GROES.value = 'M12X50'; });
   await page.click('#btnRun'); await waitIdle();
   // Change in packages: all products of a package read in one $batch (filter with "or", $select), all change sets in one $batch;

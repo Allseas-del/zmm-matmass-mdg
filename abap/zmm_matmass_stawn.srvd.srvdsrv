@@ -1,0 +1,7 @@
+// 6/7  Service Definition ZMM_MATMASS_STAWN
+// 7/7  Service Binding ZMM_MATMASS_STAWN_O2: binding type "OData V2 - Web API", publish in ADT
+//      -> /sap/opu/odata/sap/ZMM_MATMASS_STAWN_O2/  (S_SERVICE: R3TR IWSG ZMM_MATMASS_STAWN_O2_0001)
+@EndUserText.label: 'Mass upload: commodity code MARC-STAWN'
+define service ZMM_MATMASS_STAWN {
+  expose ZI_MATMASS_STAWN as Stawn;
+}

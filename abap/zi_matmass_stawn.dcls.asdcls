@@ -1,0 +1,8 @@
+// 2/7  Access Control ZI_MATMASS_STAWN
+// Reading the entity (GET Stawn) only for plants with M_MATE_WRK display authorization.
+@EndUserText.label: 'Mass upload: commodity code per plant'
+@MappingRole: true
+define role ZI_MATMASS_STAWN {
+  grant select on ZI_MATMASS_STAWN
+    where ( Plant ) = aspect pfcg_auth( M_MATE_WRK, WERKS, ACTVT = '03' );
+}

@@ -126,7 +126,7 @@
     </div>
     <div>
       <label class="stack">V2 service (create with internal number)<input type="text" id="svcV2" value="/sap/opu/odata/sap/API_PRODUCT_SRV/"></label>
-      <label class="stack" style="margin-top:12px">Commodity code service (custom OData V2, column STAWN of Plant Data)<input type="text" id="svcStawn" value="/sap/opu/odata/sap/ZMM_MATMASS_STAWN_SRV/"></label>
+      <label class="stack" style="margin-top:12px">Commodity code service (RAP, OData V2, column STAWN of Plant Data)<input type="text" id="svcStawn" value="/sap/opu/odata/sap/ZMM_MATMASS_STAWN_O2/"></label>
       <details class="disclose" style="margin-top:12px"><summary>▸ Details</summary>
         <ul class="hints muted small">
           <li>The app runs inside the Fiori launchpad of the same SAP system; requests use your launchpad session. No password is entered or stored.</li>
@@ -936,7 +936,7 @@ async function testConnection() {
 // (DS4 8 Oct 2026: neither API_PRODUCT_2 nor API_PRODUCT_SRV has the commodity code MARC-STAWN; the plant entity
 // "International Trade" only has country/region of origin, CAS number, PRODCOM number and consumption tax code).
 // STAWN is an Allseas column appended to the Plant Data sheet (field name row 5, type row 6, description row 8).
-const CUSTOM_FIELDS = { S_MARC: { STAWN: 'custom service: MARC-STAWN (ZMM_MATMASS_STAWN_SRV)' } };
+const CUSTOM_FIELDS = { S_MARC: { STAWN: 'custom service: MARC-STAWN (ZMM_MATMASS_STAWN_O2)' } };
 function apiOf(sheet, field) {
   const hits = TREE.filter(n => n.sheet === sheet && (n.fields[field] || (n.carry && n.carry[field]))).map(n => {
     const p = n.fields[field] || n.carry[field];
@@ -1362,9 +1362,7 @@ function changeResult(h, product, ops, a, createdNow, extra) {
 }
 function noDifferences(h, product) { finish(h, 'done', product, 'no differences', 0); log(`${prodOf(h)} → ${product}: no differences`, 'ok'); }
 // --- commodity code (MARC-STAWN) through the custom ABAP service, see CUSTOM_FIELDS and abap/README.md
-// Request  POST { items: [{ material, plant, commodityCode }] }  ("#" in the file clears the code: commodityCode "")
-// Response { items: [{ material, plant, commodityCode, previous, changed, type: 'S'|'E', message }] }
-// Sent after the product's V4 change set: the BAPI moves the product's change timestamp, which is the V4 ETag.
+// Items { material, plant, commodityCode } ("#" in the file clears the code: commodityCode ""), sent after the product's V4 change set.
 function stawnItems(h, product) {
   const out = [];
   for (const r of (index.S_MARC && index.S_MARC.get(prodOf(h))) || []) {
@@ -1374,11 +1372,12 @@ function stawnItems(h, product) {
   }
   return out;
 }
-// --- commodity code (MARC-STAWN) through the custom Gateway service ZMM_MATMASS_STAWN_SRV (SEGW, OData V2), see abap/README.md
-// One $batch per call, one change set per material/plant with "POST StawnSet { Material, Plant, Code }". The service
-// writes MARC-STAWN and answers 201 with the result in the same entity: Previous, Changed, Type ('S'|'E'), Message.
-// CSRF as for every Gateway service: token from a GET on the service root with "X-CSRF-Token: Fetch".
-let csrfStawn = null;
+// --- commodity code (MARC-STAWN) through the RAP service ZMM_MATMASS_STAWN_O2 (OData V2, static action setCode), see abap/README.md
+// One $batch per call, one change set per material/plant with "POST setCode?Material='…'&Plant='…'&Code='…'" (function
+// import). The action writes MARC-STAWN and answers 200 with Previous, Changed, MessageType ('S'|'E'), Message.
+// CSRF as for every Gateway service: token from a GET on the service root with "X-CSRF-Token: Fetch"; the function import
+// name is taken from $metadata (the one ending in "setCode").
+let csrfStawn = null, stawnFn = null;
 function stawnBase() { let p = $('svcStawn').value.trim(); if (!p.endsWith('/')) p += '/'; return p; }
 async function fetchStawnToken() {
   const r = await fetch(withParams(stawnBase()), { credentials: 'include', headers: { 'X-CSRF-Token': 'Fetch', Accept: 'application/json' } });
@@ -1387,22 +1386,29 @@ async function fetchStawnToken() {
   csrfStawn = r.headers.get('x-csrf-token');
   if (!r.ok || !csrfStawn || csrfStawn.toLowerCase() === 'required') {
     csrfStawn = null;
-    throw new Error(`service not reachable (HTTP ${r.status}${r.status === 404 || r.status === 403 ? ' — service not activated in /IWFND/MAINT_SERVICE, or no S_SERVICE authorization' : ''})`);
+    throw new Error(`service not reachable (HTTP ${r.status}${r.status === 404 || r.status === 403 ? ' — service binding not published, or no S_SERVICE authorization' : ''})`);
+  }
+  if (!stawnFn) {
+    const m = await fetch(withParams(stawnBase() + '$metadata'), { credentials: 'include' });
+    const x = m.ok ? await m.text() : '';
+    const f = x.match(/<FunctionImport\s[^>]*Name="([^"]*setCode)"/i);
+    stawnFn = f ? f[1] : 'setCode';
   }
 }
+const v2Lit = v => encodeURIComponent(`'${String(v).replace(/'/g, "''")}'`);
 const v2Err = (body, status) => { const m = body && body.error && body.error.message; return `HTTP ${status}: ${(m && (m.value || m)) || ''}`; };
 async function stawnBatch(items) {   // -> [{ status, body }] in the order of items
+  if (!csrfStawn || !stawnFn) await fetchStawnToken();
   const boundary = 'batch_' + Math.random().toString(36).slice(2);
   let payload = '';
   items.forEach((it, i) => {
     const cs = 'changeset_' + Math.random().toString(36).slice(2);
     payload += `--${boundary}\r\nContent-Type: multipart/mixed;boundary=${cs}\r\n\r\n--${cs}\r\n` +
-      httpPart({ method: 'POST', path: 'StawnSet', body: { Material: it.material, Plant: it.plant, Code: it.commodityCode } }, i + 1) + `--${cs}--\r\n`;
+      httpPart({ method: 'POST', path: `${stawnFn}?Material=${v2Lit(it.material)}&Plant=${v2Lit(it.plant)}&Code=${v2Lit(it.commodityCode)}` }, i + 1) + `--${cs}--\r\n`;
   });
   payload += `--${boundary}--\r\n`;
   const send = () => fetch(withParams(stawnBase() + '$batch'), { method: 'POST', credentials: 'include', body: payload,
     headers: { 'Content-Type': `multipart/mixed;boundary=${boundary}`, Accept: 'multipart/mixed', 'X-CSRF-Token': csrfStawn || '' } });
-  if (!csrfStawn) await fetchStawnToken();
   let r = await send();
   if (r.status === 403 && (r.headers.get('x-csrf-token') || '').toLowerCase() === 'required') { await fetchStawnToken(); r = await send(); }
   const text = await r.text();
@@ -1425,10 +1431,10 @@ async function sendStawn(list) {   // list: [{ h, product }] -> Map product -> {
   catch (e) { for (const v of res.values()) v.error = `commodity code service ${stawnBase()}: ${e.message}`; return res; }
   items.forEach((it, i) => {
     const v = res.get(it.material), a = answers[i] || { status: 0, body: null };
-    const d = a.body && a.body.d;
+    const d = a.body && a.body.d && (a.body.d[stawnFn] || a.body.d);
     if (!(a.status >= 200 && a.status < 300) || !d) { v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${v2Err(a.body, a.status)}`; return; }
-    if (d.Type === 'E' || d.Type === 'A') v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${d.Message}`;
-    else if (d.Changed) { v.steps++; v.labels.push(`${it.material} plant ${it.plant}: commodity code ${JSON.stringify(d.Previous || '')} → ${JSON.stringify(d.Code || '')}`); }
+    if (d.MessageType === 'E' || d.MessageType === 'A') v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${d.Message}`;
+    else if (d.Changed === true || d.Changed === 'X') { v.steps++; v.labels.push(`${it.material} plant ${it.plant}: commodity code ${JSON.stringify(d.Previous || '')} → ${JSON.stringify(d.Code || '')}`); }
   });
   return res;
 }

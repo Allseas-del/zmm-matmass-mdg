@@ -5,7 +5,7 @@ const http = require('http'), fs = require('fs'), path = require('path'), vm = r
 const PORT = parseInt(process.env.PORT || '8099', 10);
 const SVC = '/sap/opu/odata4/sap/api_product/srvd_a2x/sap/product/0002/';
 const TOOL = path.join(__dirname, '../webapp/tool.html');
-const SVC_V2 = '/sap/opu/odata/sap/API_PRODUCT_SRV/'; const TOKEN_V2 = 'tokv2-' + Date.now(); const TOKEN_STAWN = 'tokstawn-' + Date.now(); const SVC_STAWN = '/sap/opu/odata/sap/ZMM_MATMASS_STAWN_SRV/';
+const SVC_V2 = '/sap/opu/odata/sap/API_PRODUCT_SRV/'; const TOKEN_V2 = 'tokv2-' + Date.now(); const TOKEN_STAWN = 'tokstawn-' + Date.now(); const SVC_STAWN = '/sap/opu/odata/sap/ZMM_MATMASS_STAWN_O2/';
 
 // --- property lists taken from the tool's own mapping table (what the tool can send) plus keys/computed fields
 const html = fs.readFileSync(TOOL, 'utf8');
@@ -323,27 +323,36 @@ const server = http.createServer((req, res) => {
     if (u.pathname === '/__stats') return send(200, JSON.stringify({ ...stats, products: [...store.keys()] }));
     if (u.pathname === '/__product') return send(200, JSON.stringify(store.has(u.searchParams.get('id')) ? serialize(store.get(u.searchParams.get('id')), store.get(u.searchParams.get('id'))) : null));
     if (u.pathname === '/__reset') { store = new Map(); Object.keys(stats).forEach(k => stats[k] = 0); return send(200, '{}'); }
-    // Custom Gateway service ZMM_MATMASS_STAWN_SRV (SEGW, OData V2) for the commodity code (MARC-STAWN), see abap/README.md.
-    // Entity set StawnSet: POST { Material, Plant, Code } writes the code and answers 201 with Previous, Changed, Type, Message.
+    // RAP service ZMM_MATMASS_STAWN_O2 (OData V2) for the commodity code (MARC-STAWN), see abap/README.md.
+    // Static action = function import setCode: POST setCode?Material='..'&Plant='..'&Code='..' writes the code and answers
+    // 200 { d: { setCode: { ..., Previous, Changed, MessageType, Message } } }.
     // Stored on the plant node as ZZ_STAWN (visible in /__product). CSRF as in Gateway.
     if (u.pathname.startsWith(SVC_STAWN)) {
       const rel = u.pathname.substring(SVC_STAWN.length);
-      if (req.method === 'GET' && rel === '') return send(200, '{"d":{"EntitySets":["StawnSet"]}}', 'application/json', { 'x-csrf-token': TOKEN_STAWN });
+      if (req.method === 'GET' && rel === '') return send(200, '{"d":{"EntitySets":["Stawn"]}}', 'application/json', { 'x-csrf-token': TOKEN_STAWN });
+      if (req.method === 'GET' && rel === '$metadata') return send(200, '<edmx:Edmx><edmx:DataServices><Schema><EntityContainer Name="cds_zmm_matmass_stawn_Entities"><EntitySet Name="Stawn"/>' +
+        '<FunctionImport Name="setCode" ReturnType="cds_zmm_matmass_stawn.ZA_MATMASS_STAWN_RType" m:HttpMethod="POST"><Parameter Name="Material" Type="Edm.String" Mode="In"/>' +
+        '<Parameter Name="Plant" Type="Edm.String" Mode="In"/><Parameter Name="Code" Type="Edm.String" Mode="In"/></FunctionImport></EntityContainer></Schema></edmx:DataServices></edmx:Edmx>', 'application/xml');
       if (req.headers['x-csrf-token'] !== TOKEN_STAWN) { stats.stawnRejected = (stats.stawnRejected || 0) + 1; return send(403, '{"error":{"message":{"value":"CSRF token validation failed"}}}', 'application/json', { 'x-csrf-token': 'Required' }); }
       const saveOne = it => {
         stats.stawnItems = (stats.stawnItems || 0) + 1;
-        const out = { Material: String(it.Material || ''), Plant: String(it.Plant || ''), Code: String(it.Code || '').trim(), Previous: '', Changed: false, Type: 'E', Message: '' };
+        const out = { Material: String(it.Material || ''), Plant: String(it.Plant || ''), Code: String(it.Code || '').trim(), Previous: '', Changed: false, MessageType: 'E', Message: '' };
         const prod = store.get(out.Material);
         if (!prod) { out.Message = `Material ${out.Material} does not exist`; return out; }
         const plant = (prod.navs._ProductPlant || []).find(pl => pl.data.Plant === out.Plant);
         if (!plant) { out.Message = `Material ${out.Material} is not maintained in plant ${out.Plant}`; return out; }
         if (!/^[0-9 ]{0,17}$/.test(out.Code)) { out.Message = `Commodity code "${out.Code}": digits and spaces only, max. 17 characters`; return out; }
-        out.Previous = plant.data.ZZ_STAWN || ''; out.Changed = out.Previous !== out.Code; out.Type = 'S';
+        out.Previous = plant.data.ZZ_STAWN || ''; out.Changed = out.Previous !== out.Code; out.MessageType = 'S';
         out.Message = out.Changed ? 'Commodity code changed (MARC-STAWN)' : 'unchanged';
         if (out.Changed) plant.data.ZZ_STAWN = out.Code;
         return out;
       };
-      if (req.method === 'POST' && rel === 'StawnSet') { stats.stawnPosts = (stats.stawnPosts || 0) + 1; return send(201, JSON.stringify({ d: saveOne(JSON.parse(data || '{}')) })); }
+      // V2 function import parameters: Name='literal' ('' escapes a quote), URL-encoded
+      const fiParams = url => { const q = new URL(url, 'http://x/').searchParams, o = {};
+        for (const [k, v] of q) { if (k.startsWith('sap-')) continue; const m = v.match(/^'(.*)'$/s); if (!m) return null; o[k] = m[1].replace(/''/g, "'"); } return o; };
+      const callFi = url => { const prm = url.split('?')[0] === 'setCode' ? fiParams(url) : null;
+        return prm ? { status: 200, body: { d: { setCode: saveOne(prm) } } } : { status: 404, body: { error: { message: { value: 'not found ' + url } } } }; };
+      if (req.method === 'POST' && rel === 'setCode') { stats.stawnPosts = (stats.stawnPosts || 0) + 1; const r = callFi(rel + u.search); return send(r.status, JSON.stringify(r.body)); }
       if (req.method === 'POST' && rel === '$batch') {
         stats.stawnPosts = (stats.stawnPosts || 0) + 1;
         const b = (req.headers['content-type'].match(/boundary=([^;]+)/) || [])[1];
@@ -353,7 +362,7 @@ const server = http.createServer((req, res) => {
           const reqs = cm ? part.split('--' + cm[1]).slice(1).filter(x => !x.startsWith('--') && x.trim()).map(parseReq) : [parseReq(part)];
           const cb = 'cs_' + Math.random().toString(36).slice(2);
           out += `--${ob}\r\nContent-Type: multipart/mixed; boundary=${cb}\r\n\r\n` + reqs.map(q => {
-            const r = q.method === 'POST' && q.url === 'StawnSet' ? { status: 201, body: { d: saveOne(q.body || {}) } } : { status: 404, body: { error: { message: { value: 'not found ' + q.url } } } };
+            const r = q.method === 'POST' ? callFi(q.url) : { status: 404, body: { error: { message: { value: 'not found ' + q.url } } } };
             return `--${cb}\r\nContent-Type: application/http\r\n\r\n` + httpResp(r);
           }).join('') + `--${cb}--\r\n`;
         }
