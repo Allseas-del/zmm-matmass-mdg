@@ -936,7 +936,7 @@ async function testConnection() {
 // (DS4 8 Oct 2026: neither API_PRODUCT_2 nor API_PRODUCT_SRV has the commodity code MARC-STAWN; the plant entity
 // "International Trade" only has country/region of origin, CAS number, PRODCOM number and consumption tax code).
 // STAWN is an Allseas column appended to the Plant Data sheet (field name row 5, type row 6, description row 8).
-const CUSTOM_FIELDS = { S_MARC: { STAWN: 'custom service: MARC-STAWN (BAPI_MATERIAL_SAVEDATA)' } };
+const CUSTOM_FIELDS = { S_MARC: { STAWN: 'custom service: MARC-STAWN (direct update)' } };
 function apiOf(sheet, field) {
   const hits = TREE.filter(n => n.sheet === sheet && (n.fields[field] || (n.carry && n.carry[field]))).map(n => {
     const p = n.fields[field] || n.carry[field];

@@ -13,10 +13,14 @@
 "! Response 200, application/json, one entry per request item in the same order
 "!   { "items": [ { "material", "plant", "commodityCode", "previous", "changed", "type": "S"|"E", "message" } ] }
 "!
-"! Each item is saved with BAPI_MATERIAL_SAVEDATA (PLANTDATA-COMM_CODE) and committed on its own, so one rejected
-"! item does not stop the others. After the commit MARC is read again: "changed" reports what is really in the
-"! database, in case the BAPI accepts the field but does not update it in this S/4HANA release (SAP note 2267246,
-"! foreign trade fields in the material master).
+"! Each item is written directly to MARC-STAWN (UPDATE with lock EMMARCE) and committed on its own, so one rejected
+"! item does not stop the others. Reason: on DS4 (8 Oct 2026) neither API_PRODUCT_SRV (PATCH A_ProductPlant, property
+"! Commodity: HTTP 204, value not saved) nor BAPI_MATERIAL_SAVEDATA (PLANTDATA-COMM_CODE: M3 810 "No changes made")
+"! updates the field. In S/4HANA International Trade the commodity code lives in /SAPSLL/MARITC (KBA 2432527); this
+"! service only maintains the old MARC field, on request of the business (decision 8 Oct 2026).
+"! Consequences: no change document is written, and the checks of the material master transaction do not run.
+"! The handler itself checks M_MATE_WRK (activity 02, plant of the item) and M_MATE_MAT (authorization group of the
+"! material, if set), that material and plant exist, and the format of the code (digits and spaces, max. 17).
 CLASS zcl_mm_matmass_stawn DEFINITION
   PUBLIC
   FINAL
@@ -95,7 +99,7 @@ CLASS zcl_mm_matmass_stawn IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-    " Coarse check up front; the BAPI checks the material master authorizations (M_MATE_WRK, M_MATE_MAT, ...) per item.
+    " Coarse check up front (any plant); the exact check per plant follows in save_one.
     AUTHORITY-CHECK OBJECT 'M_MATE_WRK'
       ID 'ACTVT' FIELD '02'
       ID 'WERKS' DUMMY.
@@ -137,14 +141,10 @@ CLASS zcl_mm_matmass_stawn IMPLEMENTATION.
 
 
   METHOD save_one.
-    DATA lv_matnr  TYPE matnr.
-    DATA lv_new    TYPE stawn.
-    DATA lv_after  TYPE stawn.
-    DATA ls_head   TYPE bapimathead.
-    DATA ls_plant  TYPE bapi_marc.
-    DATA ls_plantx TYPE bapi_marcx.
-    DATA ls_return TYPE bapiret2.
-    DATA lt_msgs   TYPE STANDARD TABLE OF bapi_matreturn2.
+    DATA lv_matnr TYPE matnr.
+    DATA lv_new   TYPE stawn.
+    DATA lv_after TYPE stawn.
+    DATA lv_begru TYPE begru.
 
     cs_item-changed = abap_false.
 
@@ -163,6 +163,41 @@ CLASS zcl_mm_matmass_stawn IMPLEMENTATION.
       RETURN.
     ENDIF.
 
+    " format: digits and spaces, max. 17 characters (data element STAWN); "" clears the code
+    lv_new = condense( cs_item-commodity_code ).
+    IF strlen( condense( cs_item-commodity_code ) ) > 17 OR NOT lv_new CO '0123456789 '.
+      cs_item-type    = 'E'.
+      cs_item-message = |Commodity code "{ cs_item-commodity_code }": digits and spaces only, max. 17 characters|.
+      RETURN.
+    ENDIF.
+    cs_item-commodity_code = lv_new.
+
+    " authorization per plant and, if the material has one, per authorization group
+    AUTHORITY-CHECK OBJECT 'M_MATE_WRK'
+      ID 'ACTVT' FIELD '02'
+      ID 'WERKS' FIELD cs_item-plant.
+    IF sy-subrc <> 0.
+      cs_item-type    = 'E'.
+      cs_item-message = |No authorization to change material data in plant { cs_item-plant } (M_MATE_WRK)|.
+      RETURN.
+    ENDIF.
+    SELECT SINGLE begru FROM mara WHERE matnr = @lv_matnr INTO @lv_begru.
+    IF sy-subrc <> 0.
+      cs_item-type    = 'E'.
+      cs_item-message = |Material { cs_item-material } does not exist|.
+      RETURN.
+    ENDIF.
+    IF lv_begru IS NOT INITIAL.
+      AUTHORITY-CHECK OBJECT 'M_MATE_MAT'
+        ID 'ACTVT' FIELD '02'
+        ID 'BEGRU' FIELD lv_begru.
+      IF sy-subrc <> 0.
+        cs_item-type    = 'E'.
+        cs_item-message = |No authorization for authorization group { lv_begru } of material { cs_item-material } (M_MATE_MAT)|.
+        RETURN.
+      ENDIF.
+    ENDIF.
+
     SELECT SINGLE stawn FROM marc
       WHERE matnr = @lv_matnr AND werks = @cs_item-plant
       INTO @cs_item-previous.
@@ -171,58 +206,49 @@ CLASS zcl_mm_matmass_stawn IMPLEMENTATION.
       cs_item-message = |Material { cs_item-material } is not maintained in plant { cs_item-plant }|.
       RETURN.
     ENDIF.
-
-    lv_new = condense( cs_item-commodity_code ).
-    cs_item-commodity_code = lv_new.
     IF lv_new = cs_item-previous.
       cs_item-type    = 'S'.
       cs_item-message = 'unchanged'.
       RETURN.
     ENDIF.
 
-    ls_head-material      = lv_matnr.
-    ls_head-material_long = lv_matnr.
-    ls_plant-plant        = cs_item-plant.
-    ls_plant-comm_code    = lv_new.
-    ls_plantx-plant       = cs_item-plant.
-    ls_plantx-comm_code   = abap_true.
-
-    CALL FUNCTION 'BAPI_MATERIAL_SAVEDATA'
+    " same lock as the material master transaction uses for plant data
+    CALL FUNCTION 'ENQUEUE_EMMARCE'
       EXPORTING
-        headdata       = ls_head
-        plantdata      = ls_plant
-        plantdatax     = ls_plantx
-      IMPORTING
-        return         = ls_return
-      TABLES
-        returnmessages = lt_msgs.
-
-    IF ls_return-type CA 'EAX'.
-      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+        matnr          = lv_matnr
+        werks          = cs_item-plant
+      EXCEPTIONS
+        foreign_lock   = 1
+        system_failure = 2
+        OTHERS         = 3.
+    IF sy-subrc <> 0.
       cs_item-type    = 'E'.
-      cs_item-message = ls_return-message.
-      LOOP AT lt_msgs INTO DATA(ls_msg) WHERE type CA 'EAX' AND message <> ls_return-message.
-        cs_item-message = |{ cs_item-message } \| { ls_msg-message }|.
-      ENDLOOP.
+      cs_item-message = COND #( WHEN sy-subrc = 1 THEN |Material { cs_item-material } plant { cs_item-plant } is locked by { sy-msgv1 }|
+                                ELSE |Material { cs_item-material } plant { cs_item-plant }: lock failed| ).
       RETURN.
     ENDIF.
 
-    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-      EXPORTING
-        wait = abap_true.
-
-    " what is in the database now: the BAPI may accept the field without updating it (SAP note 2267246)
-    SELECT SINGLE stawn FROM marc
-      WHERE matnr = @lv_matnr AND werks = @cs_item-plant
-      INTO @lv_after.
-    IF lv_after = lv_new.
-      cs_item-changed = abap_true.
-      cs_item-type    = 'S'.
-      cs_item-message = COND #( WHEN ls_return-message IS INITIAL THEN 'Material changed' ELSE ls_return-message ).
-    ELSE.
+    UPDATE marc SET stawn = @lv_new
+      WHERE matnr = @lv_matnr AND werks = @cs_item-plant.
+    IF sy-subrc <> 0.
+      ROLLBACK WORK.
       cs_item-type    = 'E'.
-      cs_item-message = |BAPI_MATERIAL_SAVEDATA returned no error but MARC-STAWN is still "{ lv_after }": field not updated through the BAPI in this release (SAP note 2267246)|.
+      cs_item-message = |Material { cs_item-material } plant { cs_item-plant }: update of MARC failed|.
+    ELSE.
+      COMMIT WORK AND WAIT.
+      SELECT SINGLE stawn FROM marc
+        WHERE matnr = @lv_matnr AND werks = @cs_item-plant
+        INTO @lv_after.
+      cs_item-changed = xsdbool( lv_after = lv_new ).
+      cs_item-type    = COND #( WHEN cs_item-changed = abap_true THEN 'S' ELSE 'E' ).
+      cs_item-message = COND #( WHEN cs_item-changed = abap_true THEN 'Commodity code changed (MARC-STAWN)'
+                                ELSE |MARC-STAWN is "{ lv_after }" after the update| ).
     ENDIF.
+
+    CALL FUNCTION 'DEQUEUE_EMMARCE'
+      EXPORTING
+        matnr = lv_matnr
+        werks = cs_item-plant.
   ENDMETHOD.
 
 ENDCLASS.

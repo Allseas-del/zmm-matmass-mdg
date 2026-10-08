@@ -4,7 +4,10 @@ The released Product APIs do not carry the commodity code: on DS4 (8 Oct 2026) n
 entity `ProductPlantInternationalTrade`: country/region of origin, CAS number, PRODCOM number, consumption tax
 code) nor `API_PRODUCT_SRV` (V2, `A_ProductPlantIntlTrd`) has a property for `MARC-STAWN`. MM02/MM03 hide the
 field and MM17 does not offer it either. The app therefore writes the column `STAWN` of the Plant Data sheet
-through this small ABAP service, which calls `BAPI_MATERIAL_SAVEDATA` with `PLANTDATA-COMM_CODE`.
+through this small ABAP service, which writes `MARC-STAWN` directly (UPDATE with lock `EMMARCE`). Tested on DS4 8 Oct
+2026: `BAPI_MATERIAL_SAVEDATA` (`PLANTDATA-COMM_CODE`) and the V2 property `Commodity` both leave the field unchanged.
+No change document is written; in S/4HANA International Trade the commodity code itself lives in `/SAPSLL/MARITC`
+(KBA 2432527), this service only maintains the MARC field.
 
 ## Objects (package ZMM_MATMASS, same transport as the app)
 
@@ -41,14 +44,12 @@ POST /sap/bc/zmm_matmass/stawn?sap-client=410
 ```
 
 - `commodityCode` `""` clears the code (the app sends this for a `#` cell).
-- One BAPI call and commit per item; a rejected item (`type` `E`) does not stop the others.
-- After the commit the handler reads `MARC-STAWN` again and reports `changed` from the database. If the BAPI
-  accepts the field but does not update it in this S/4HANA release (SAP note 2267246, foreign trade fields in the
-  material master), the item comes back as `E` with that text. That is the first thing to verify on DS4.
-- Authorizations: the user needs change authorization for the material master plant data (`M_MATE_WRK` activity
-  02 and the usual `M_MATE_*` objects); the handler checks `M_MATE_WRK` up front, the BAPI checks the rest.
-- The app calls the service after the product's V4 change set, because the BAPI moves the product's change
-  timestamp, which the V4 API uses as ETag.
+- One UPDATE and commit per item, under lock `EMMARCE` (material/plant); a rejected item (`type` `E`) does not stop
+  the others. After the commit the handler reads `MARC-STAWN` again and reports `changed` from the database.
+- Checks in the handler: `M_MATE_WRK` activity 02 for the plant of the item, `M_MATE_MAT` activity 02 if the material
+  has an authorization group, material and plant exist, code = digits and spaces, max. 17. The checks of MM02 and the
+  BAPI do not run, and no change document is written.
+- The app calls the service after the product's V4 change set.
 
 ## Test from a terminal
 
