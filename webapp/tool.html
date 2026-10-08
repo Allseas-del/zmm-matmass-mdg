@@ -1361,7 +1361,7 @@ function changeResult(h, product, ops, a, createdNow, extra) {
   }
 }
 function noDifferences(h, product) { finish(h, 'done', product, 'no differences', 0); log(`${prodOf(h)} → ${product}: no differences`, 'ok'); }
-// --- commodity code (MARC-STAWN) through the custom ABAP service, see CUSTOM_FIELDS and docs/abap/README.md
+// --- commodity code (MARC-STAWN) through the custom ABAP service, see CUSTOM_FIELDS and abap/README.md
 // Request  POST { items: [{ material, plant, commodityCode }] }  ("#" in the file clears the code: commodityCode "")
 // Response { items: [{ material, plant, commodityCode, previous, changed, type: 'S'|'E', message }] }
 // Sent after the product's V4 change set: the BAPI moves the product's change timestamp, which is the V4 ETag.

@@ -323,7 +323,7 @@ const server = http.createServer((req, res) => {
     if (u.pathname === '/__stats') return send(200, JSON.stringify({ ...stats, products: [...store.keys()] }));
     if (u.pathname === '/__product') return send(200, JSON.stringify(store.has(u.searchParams.get('id')) ? serialize(store.get(u.searchParams.get('id')), store.get(u.searchParams.get('id'))) : null));
     if (u.pathname === '/__reset') { store = new Map(); Object.keys(stats).forEach(k => stats[k] = 0); return send(200, '{}'); }
-    // Custom ABAP service for the commodity code (MARC-STAWN), see docs/abap/README.md: the Product API has no such field.
+    // Custom ABAP service for the commodity code (MARC-STAWN), see abap/README.md: the Product API has no such field.
     // Stored on the plant node as ZZ_STAWN (visible in /__product); moves the product's change timestamp like the BAPI does.
     if (u.pathname === '/sap/bc/zmm_matmass/stawn') {
       // CSRF as in the ABAP handler: GET with "X-CSRF-Token: Fetch" returns the token; POST needs JSON and the token
