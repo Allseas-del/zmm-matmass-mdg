@@ -69,7 +69,7 @@
   .picker .fields label { display:flex; margin-bottom:6px; }
   .picker .fields .t, .picker .key { color:var(--muted-ink); }
   .split { display:grid; grid-template-columns:3fr 2fr; gap:20px; margin-top:16px; }
-  .crit { display:grid; grid-template-columns:90px minmax(160px,1fr) 110px minmax(90px,.7fr) minmax(90px,.7fr) 28px; gap:6px; margin-bottom:8px; }
+  .crit { display:grid; grid-template-columns:90px 96px minmax(150px,1fr) 104px minmax(80px,.7fr) minmax(80px,.7fr) 28px; gap:6px; margin-bottom:8px; }
   .crit input, .crit select { width:100%; }
   .crit button { height:auto; padding:0; color:var(--acc); }
   .tabs { display:flex; overflow-x:auto; border-bottom:1px solid var(--line); }
@@ -159,10 +159,18 @@
       <label><input type="radio" name="scope" value="fields" checked> Select specific fields</label>
       <label><input type="radio" name="scope" value="all"> All fields of all sheets</label>
     </div>
+    <div class="row" style="margin-bottom:8px">
+      <label><span class="muted">Scope template</span><select id="scopeTpl" style="max-width:240px"></select></label>
+      <input type="text" id="scopeTplName" size="16" placeholder="template name">
+      <button id="btnTplSave" title="Save the selected fields in their order under this name (same name = overwrite)">Save</button>
+      <button id="btnTplDel" title="Delete the chosen template">Delete</button>
+      <button id="btnTplExp" title="Download all templates as a file to share">Export</button>
+      <button id="btnTplImp" title="Load templates from an exported file">Import</button><input type="file" id="tplImport" accept=".json,application/json" hidden>
+    </div>
     <div class="tokens" id="selTokens"></div>
     <div class="picker" id="picker" hidden>
       <div class="sheets" id="pkSheets"></div>
-      <div class="fields"><input type="text" id="pkSearch" placeholder="Search field name or technical name (e.g. BRGEW)" style="width:100%;margin-bottom:12px"><div id="pkFields"></div></div>
+      <div class="fields"><input type="text" id="pkSearch" placeholder="Search all sheets: field name or technical name (e.g. BRGEW, gross weight)" style="width:100%;margin-bottom:12px"><div id="pkFields"></div></div>
     </div>
     <div class="muted small" style="margin-top:6px">Keys (PRODUCT, WERKS, LGORT, BWKEY, MEINH …) are always read and always visible.</div>
     <div class="split">
@@ -1812,6 +1820,58 @@ function expandSel(sel) {
   return out;
 }
 // --- field picker
+// Order of the selected fields = column order per sheet (after the keys) in the grid and in the downloaded file
+function moveSel(k, dir) {
+  const a = [...readSel], i = a.indexOf(k), j = i + dir;
+  if (i < 0 || j < 0 || j >= a.length) return;
+  [a[i], a[j]] = [a[j], a[i]]; readSel.clear(); a.forEach(x => readSel.add(x)); renderTokens();
+}
+// --- scope templates: named, ordered field lists in the browser; export/import as a JSON file to share
+const SCOPE_TPL_KEY = 'zmmmatmassmdg.scopeTemplates';
+function scopeTemplates() { try { return JSON.parse(localStorage.getItem(SCOPE_TPL_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function saveScopeTemplates(t) { try { localStorage.setItem(SCOPE_TPL_KEY, JSON.stringify(t)); return true; } catch (e) { log('Scope templates: browser storage not available.', 'err'); return false; } }
+function renderScopeTpl(sel) {
+  const t = scopeTemplates(), names = Object.keys(t).sort((a, b) => a.localeCompare(b));
+  $('scopeTpl').innerHTML = '<option value="">— choose a template —</option>' + names.map(n => `<option>${n.replace(/</g, '&lt;')}</option>`).join('');
+  if (sel && names.includes(sel)) $('scopeTpl').value = sel;
+}
+function loadScopeTpl(name) {
+  const keys = scopeTemplates()[name]; if (!keys) return;
+  const ok = keys.filter(k => { const [st, f] = k.split('.'); return tpl && tpl.sheets[st] && tpl.sheets[st].fields.includes(f) && (nodeOfField(st, f) || v2Read(st, f)); });
+  readSel.clear(); ok.forEach(k => readSel.add(k));
+  document.querySelector('input[name=scope][value=fields]').checked = true; $('scopeTplName').value = name;
+  renderTokens(); renderPicker();
+  log(`Scope template "${name}": ${ok.length} field(s)${ok.length < keys.length ? `, ${keys.length - ok.length} not in this template/API ignored (${keys.filter(k => !ok.includes(k)).join(', ')})` : ''}.`, ok.length < keys.length ? 'warn' : 'ok');
+}
+function initScopeTpl() {
+  renderScopeTpl();
+  $('scopeTpl').onchange = () => { if ($('scopeTpl').value) loadScopeTpl($('scopeTpl').value); };
+  $('btnTplSave').onclick = () => {
+    const name = $('scopeTplName').value.trim(); if (!name) { log('Scope template: enter a name.', 'warn'); return; }
+    if (!readSel.size) { log('Scope template: select fields first.', 'warn'); return; }
+    const t = scopeTemplates(); const existed = !!t[name]; t[name] = [...readSel];
+    if (saveScopeTemplates(t)) { renderScopeTpl(name); log(`Scope template "${name}" ${existed ? 'updated' : 'saved'}: ${readSel.size} field(s) in this order.`, 'ok'); }
+  };
+  $('btnTplDel').onclick = () => {
+    const name = $('scopeTpl').value; if (!name) return;
+    const t = scopeTemplates(); delete t[name]; if (saveScopeTemplates(t)) { renderScopeTpl(); log(`Scope template "${name}" deleted.`, 'ok'); }
+  };
+  $('btnTplExp').onclick = () => {
+    const t = scopeTemplates(); if (!Object.keys(t).length) { log('Scope templates: nothing to export.', 'warn'); return; }
+    download('scope_templates.json', JSON.stringify({ type: 'zmmmatmass-scope-templates', version: 1, templates: t }, null, 1), 'application/json');
+  };
+  $('btnTplImp').onclick = () => $('tplImport').click();
+  $('tplImport').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; e.target.value = '';
+    try {
+      const j = JSON.parse(await f.text()), inc = j && j.templates;
+      if (!inc || typeof inc !== 'object') throw new Error('not a scope template file');
+      const t = scopeTemplates(); let n = 0;
+      for (const [k, v] of Object.entries(inc)) if (Array.isArray(v)) { t[k] = v.filter(x => typeof x === 'string' && /^S_[A-Z0-9_]+\.[A-Z0-9_]+$/.test(x)); n++; }
+      if (saveScopeTemplates(t)) { renderScopeTpl(); log(`Scope templates imported from ${f.name}: ${n} (same name = replaced).`, 'ok'); }
+    } catch (err) { log(`Scope templates: ${f.name}: ${err.message}`, 'err'); }
+  };
+}
 function renderTokens() {
   const box = $('selTokens'); box.innerHTML = '';
   const all = document.querySelector('input[name=scope]:checked').value === 'all';
@@ -1819,8 +1879,10 @@ function renderTokens() {
   else for (const k of readSel) {
     const [st, f] = k.split('.');
     const t = document.createElement('span'); t.className = 'tok';
-    t.innerHTML = `${fieldLabel(st, f)} <b>(${SHEET_TAB[st]} – ${f})</b><i title="remove">×</i>`;
-    t.querySelector('i').onclick = () => { readSel.delete(k); renderTokens(); renderPicker(); };
+    t.innerHTML = `<i class="mv" title="move left (earlier column)">‹</i>${fieldLabel(st, f)} <b>(${SHEET_TAB[st]} – ${f})</b><i class="mv" title="move right (later column)">›</i><i title="remove">×</i>`;
+    const [l, r, x] = t.querySelectorAll('i');
+    l.onclick = () => moveSel(k, -1); r.onclick = () => moveSel(k, 1);
+    x.onclick = () => { readSel.delete(k); renderTokens(); renderPicker(); };
     box.appendChild(t);
   }
   if (!all) { const b = document.createElement('button'); b.className = 'icon'; b.textContent = $('picker').hidden ? '+ Add fields' : 'Close field list';
@@ -1838,17 +1900,21 @@ function renderPicker() {
   }
   const q2 = $('pkSearch').value.trim().toUpperCase();
   const box = $('pkFields'); box.innerHTML = '';
-  const fields = tpl.sheets[pkSheet].fields.filter(f => !q2 || f.includes(q2) || fieldLabel(pkSheet, f).toUpperCase().includes(q2));
-  const free = fields.filter(f => (nodeOfField(pkSheet, f) || v2Read(pkSheet, f)) && !SHEET_KEYS[pkSheet].includes(f));
-  const allOn = free.length && free.every(f => readSel.has(`${pkSheet}.${f}`));
-  const wl = document.createElement('label'); wl.innerHTML = `<input type="checkbox" ${allOn ? 'checked' : ''}> <b>All fields of this sheet${q2 ? ' (search result)' : ''}</b>`;
-  wl.querySelector('input').onchange = e => { free.forEach(f => e.target.checked ? readSel.add(`${pkSheet}.${f}`) : readSel.delete(`${pkSheet}.${f}`)); renderTokens(); renderPicker(); };
+  // without search: fields of the chosen sheet; with search: matching fields of all sheets (sheet shown per field)
+  const hit = (st, f) => f.includes(q2) || fieldLabel(st, f).toUpperCase().includes(q2);
+  const list = q2 ? READ_SHEETS.filter(st => tpl.sheets[st]).flatMap(st => tpl.sheets[st].fields.filter(f => hit(st, f)).map(f => [st, f]))
+    : tpl.sheets[pkSheet].fields.map(f => [pkSheet, f]);
+  const free = list.filter(([st, f]) => (nodeOfField(st, f) || v2Read(st, f)) && !SHEET_KEYS[st].includes(f));
+  const allOn = free.length && free.every(([st, f]) => readSel.has(`${st}.${f}`));
+  const wl = document.createElement('label'); wl.innerHTML = `<input type="checkbox" ${allOn ? 'checked' : ''}> <b>${q2 ? `All ${free.length} search result(s) of all sheets` : 'All fields of this sheet'}</b>`;
+  wl.querySelector('input').onchange = e => { free.forEach(([st, f]) => e.target.checked ? readSel.add(`${st}.${f}`) : readSel.delete(`${st}.${f}`)); renderTokens(); renderPicker(); };
   box.appendChild(wl);
-  for (const f of fields) {
-    const key = SHEET_KEYS[pkSheet].includes(f), api = !!nodeOfField(pkSheet, f) || v2Read(pkSheet, f);
+  if (q2 && !list.length) box.insertAdjacentHTML('beforeend', '<div class="muted small">No field found in any sheet.</div>');
+  for (const [st, f] of list) {
+    const key = SHEET_KEYS[st].includes(f), api = !!nodeOfField(st, f) || v2Read(st, f);
     const l = document.createElement('label'); if (key || !api) l.className = 'key';
-    l.innerHTML = `<input type="checkbox" ${key || readSel.has(`${pkSheet}.${f}`) ? 'checked' : ''} ${key || !api ? 'disabled' : ''}> ${fieldLabel(pkSheet, f)} <span class="t">&nbsp;${f}${key ? ' · key' : ''}${v2Read(pkSheet, f) ? ' · V2 API (read only)' : api ? '' : ' · not in API'}</span>`;
-    l.querySelector('input').onchange = e => { e.target.checked ? readSel.add(`${pkSheet}.${f}`) : readSel.delete(`${pkSheet}.${f}`); renderTokens(); renderPicker(); };
+    l.innerHTML = `<input type="checkbox" ${key || readSel.has(`${st}.${f}`) ? 'checked' : ''} ${key || !api ? 'disabled' : ''}> ${fieldLabel(st, f)} <span class="t">&nbsp;${f}${q2 ? ` · ${SHEET_TAB[st]}` : ''}${key ? ' · key' : ''}${v2Read(st, f) ? ' · V2 API (read only)' : api ? '' : ' · not in API'}</span>`;
+    l.querySelector('input').onchange = e => { e.target.checked ? readSel.add(`${st}.${f}`) : readSel.delete(`${st}.${f}`); renderTokens(); renderPicker(); };
     box.appendChild(l);
   }
 }
@@ -1884,10 +1950,12 @@ function critMeta(d) {
   const nf = nonFilterable[set];
   return { et, set, p, type: p ? p.type : 'Edm.String', filterable: !!p && !(nf && (nf.has('*') || nf.has(d.prop))) };
 }
-function critOptionsHtml() {
+function critOptionsHtml(q) {   // q: search text (field name, technical name or sheet), upper case
   const opt = k => { const d = critDef(k); if (!d) return ''; const m = schema ? critMeta(d) : { filterable: true };
+    if (q && !(k.toUpperCase().includes(q) || String(d.label).toUpperCase().includes(q))) return '';
     return m.filterable ? `<option value="${k}">${d.label}</option>` : ''; };
-  let h = `<optgroup label="Frequently used">${CRIT_TOP.map(opt).join('')}</optgroup>`;
+  const top = CRIT_TOP.map(opt).join('');
+  let h = top ? `<optgroup label="Frequently used">${top}</optgroup>` : '';
   for (const st of READ_SHEETS) {
     if (!tpl || !tpl.sheets[st]) continue;
     const o = tpl.sheets[st].fields.map(f => opt(`${st}.${f}`)).join('');
@@ -1898,7 +1966,7 @@ function critOptionsHtml() {
 function addCrit(sign, field, op, low, high) {
   const d = document.createElement('div'); d.className = 'crit';
   d.innerHTML = `<select class="cSign"><option value="I">Include</option><option value="E">Exclude</option></select>
-    <select class="cField">${critOptionsHtml()}</select><select class="cOp"></select>
+    <input type="text" class="cFind" size="10" placeholder="search field" title="Type part of the field name or technical name (e.g. BKLAS, plant) to shorten the field list"><select class="cField">${critOptionsHtml()}</select><select class="cOp"></select>
     <input type="text" class="cLow"><input type="text" class="cHigh" placeholder="to"><button class="icon" title="remove">×</button>`;
   const fSel = d.querySelector('.cField'), oSel = d.querySelector('.cOp');
   const syncOps = () => {   // operators by type: text eq/between/starts with, numbers and dates eq/between, yes/no eq
@@ -1911,6 +1979,12 @@ function addCrit(sign, field, op, low, high) {
   };
   d.querySelector('.cSign').value = sign || 'I'; fSel.value = field || 'S_MARA.PRODUCT'; if (!fSel.value) fSel.selectedIndex = 0;
   fSel.onchange = syncOps; oSel.onchange = syncOps; syncOps(); if (op) { oSel.value = op; syncOps(); }
+  d.querySelector('.cFind').oninput = e => {
+    const q = e.target.value.trim().toUpperCase(), keep = fSel.value;
+    fSel.innerHTML = critOptionsHtml(q) || '<option value="">(no field found)</option>';
+    if ([...fSel.options].some(o => o.value === keep)) fSel.value = keep; else fSel.selectedIndex = 0;
+    syncOps();
+  };
   d.querySelector('.cLow').value = low || ''; d.querySelector('.cHigh').value = high || '';
   d.querySelector('button').onclick = () => d.remove();
   $('critRows').appendChild(d);
@@ -2056,8 +2130,48 @@ function columnEls(table) {
   }
   return byIdx;
 }
+// Column order of a sheet: keys, then the selected fields in the chosen order (each followed by the unit/currency it
+// needs), then the other fields in template order. Moves the cells of every row (merged group headers are split, the
+// group text is repeated per column) and the Column elements (width, hidden). Only for "Select specific fields".
+function orderedFields(st, sh) {
+  if (document.querySelector('input[name=scope]:checked').value !== 'fields') return null;
+  const chosen = [];
+  for (const k of readSel) for (const x of expandSel(new Set([k]))) { const [s2, f] = x.split('.'); if (s2 === st && sh.fields.includes(f) && !chosen.includes(f)) chosen.push(f); }
+  if (!chosen.length) return null;
+  const keys = (SHEET_KEYS[st] || []).filter(f => sh.fields.includes(f) && !chosen.includes(f));
+  return [...keys, ...chosen, ...sh.fields.filter(f => !keys.includes(f) && !chosen.includes(f))];
+}
+function reorderColumns(ws, sh, order) {
+  const table = [...ws.children].find(n => n.localName === 'Table'); if (!table) return;
+  const rows = [...table.children].filter(n => n.localName === 'Row');
+  let n = 0; rows.forEach(r => rowCells(r).forEach(c => { n = Math.max(n, c.idx + 1 + parseInt(c.el.getAttributeNS(SS, 'MergeAcross') || '0', 10)); }));
+  const fieldCols = order.map(f => sh.colOf[f]), first = Math.min(...fieldCols);
+  const others = [...Array(n).keys()].filter(i => !fieldCols.includes(i));
+  const perm = [...others.filter(i => i < first), ...fieldCols, ...others.filter(i => i >= first)];   // new position -> old position
+  for (const r of rows) {
+    const slots = [];
+    for (const c of rowCells(r)) {
+      const m = parseInt(c.el.getAttributeNS(SS, 'MergeAcross') || '0', 10);
+      c.el.removeAttributeNS(SS, 'MergeAcross'); slots[c.idx] = c.el;
+      for (let k = 1; k <= m; k++) slots[c.idx + k] = c.el.cloneNode(true);
+      r.removeChild(c.el);
+    }
+    perm.forEach((old, ni) => { const c = slots[old]; if (!c) return; c.setAttributeNS(SS, 'ss:Index', String(ni + 1)); r.appendChild(c); });
+  }
+  const cols = columnEls(table), firstRow = rows[0] || null;
+  Object.values(cols).forEach(c => c.parentNode && c.parentNode.removeChild(c));
+  perm.forEach((old, ni) => { const c = cols[old]; if (!c) return; c.setAttributeNS(SS, 'ss:Index', String(ni + 1)); table.insertBefore(c, firstRow); });
+}
 function buildFromSap(rowsBySheet, sel) {
-  const res = parseWorkbook(tpl.text); xmlDoc = res.doc;
+  let res = parseWorkbook(tpl.text);
+  let moved = false;
+  for (const [st, sh] of Object.entries(res.sheets)) {
+    if (!READ_SHEETS.includes(st)) continue;
+    const order = orderedFields(st, sh); if (!order || order.every((f, i) => f === sh.fields[i])) continue;
+    reorderColumns(sh.ws, sh, order); moved = true;
+  }
+  if (moved) res = parseWorkbook(new XMLSerializer().serializeToString(res.doc));
+  xmlDoc = res.doc;
   const hideEmpty = $('optHideEmpty').checked, hideUnsel = $('optHideUnsel').checked, onlyFilled = $('optOnlyFilled').checked;
   let hiddenTotal = 0;
   for (const [st, sh] of Object.entries(res.sheets)) {
@@ -2095,6 +2209,7 @@ $('srcSap').onclick = async () => {
 document.querySelectorAll('input[name=scope]').forEach(r => r.onchange = () => { $('picker').hidden = true; renderTokens(); });
 document.querySelectorAll('input[name=selBy]').forEach(r => r.onchange = () => { const list = r.value === 'list' && r.checked; $('listBox').hidden = !list; $('critBox').hidden = list; });
 $('pkSearch').oninput = () => renderPicker();
+initScopeTpl();
 $('btnCritAdd').onclick = () => addCrit();
 $('btnCount').onclick = async () => {
   try {

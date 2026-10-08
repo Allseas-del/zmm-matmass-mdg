@@ -326,6 +326,44 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   await page.evaluate(() => { sheets.S_MARA.rows[0].cells.MEINS.value = sheets.S_MARA.rows[0].cells.MEINS.orig; });
   ok('28c rejected change set: rows in it show "not saved (change set of the product rejected): <SAP message>" as error',
     rj.length && rj.every(([m, c]) => /^not saved \(change set of the product rejected\): HTTP 400: Unit of measure XXX/.test(m) && c === 'err'), JSON.stringify(rj).substring(0, 300));
+  // field search over all sheets, searchable criterion field, scope templates with order, column order in the result
+  await page.click('#srcSap'); await page.waitForSelector('#critRows');
+  await page.evaluate(() => { readSel.clear(); renderTokens(); $('picker').hidden = false; pkSheet = 'S_MARA'; renderTokens(); renderPicker(); });
+  await page.fill('#pkSearch', 'brgew');
+  const srch = await page.$$eval('#pkFields label', ls => ls.map(l => l.textContent));
+  await page.fill('#pkSearch', 'zzzz-nothing'); const none = await page.textContent('#pkFields'); await page.fill('#pkSearch', '');
+  ok('29a field list: search runs over all sheets (BRGEW found on Alt. Units while Basic Data is open), sheet shown per hit, "no field found" message',
+    srch.some(t => /BRGEW · Alt\. Units/.test(t)) && /No field found/.test(none), srch.slice(0, 3).join(' | '));
+  const cf = await page.evaluate(() => { $('critRows').innerHTML = ''; addCrit('I', 'S_MARA.PRODUCT', 'sw', 'ZTEST'); addCrit('I', 'S_MARA.PRODUCT', 'eq', '');
+    const d = document.querySelector('#critRows .crit:last-child'), inp = d.querySelector('.cFind'); const all = d.querySelectorAll('.cField option').length;
+    inp.value = 'bklas'; inp.dispatchEvent(new Event('input')); const opts = [...d.querySelectorAll('.cField option')].map(o => o.value);
+    const res = { all, opts, val: d.querySelector('.cField').value }; d.remove(); return res; });
+  ok('29b criterion: typing in "search field" shortens the field list (bklas → valuation class), first hit selected',
+    cf.all > 300 && cf.opts.length >= 1 && cf.opts.length < 5 && cf.opts.every(v => /BKLAS/.test(v)) && cf.val === cf.opts[0], JSON.stringify(cf));
+  // template: save with order, reorder, reload
+  await page.evaluate(() => { readSel.clear(); ['S_MARC.STAWN', 'S_MARC.DISMM', 'S_MARA.GROES'].forEach(k => readSel.add(k)); renderTokens(); });
+  await page.fill('#scopeTplName', 'Plant set'); await page.click('#btnTplSave');
+  await page.evaluate(() => moveSel('S_MARC.DISMM', -1));
+  const moved = await page.evaluate(() => [...readSel].join(','));
+  await page.selectOption('#scopeTpl', 'Plant set');
+  const loaded = await page.evaluate(() => [...readSel].join(','));
+  const [dlScope] = await Promise.all([page.waitForEvent('download'), page.click('#btnTplExp')]);
+  const sPath = path.join(__dirname, 'scope_templates.json'); await dlScope.saveAs(sPath); const tj = JSON.parse(fs.readFileSync(sPath, 'utf8'));
+  await page.evaluate(() => { localStorage.removeItem(SCOPE_TPL_KEY); renderScopeTpl(); });
+  await page.setInputFiles('#tplImport', sPath); await page.waitForFunction(() => /Scope templates imported/.test(fullLog.join('\n')));
+  const back2 = await page.evaluate(() => Object.keys(scopeTemplates()));
+  ok('29c scope templates: saved with field order, ‹ › changes the order, choosing the template restores the saved order, export → import restores it',
+    moved === 'S_MARC.DISMM,S_MARC.STAWN,S_MARA.GROES' && loaded === 'S_MARC.STAWN,S_MARC.DISMM,S_MARA.GROES' && tj.templates['Plant set'].join(',') === loaded && back2.includes('Plant set'),
+    `${moved} | ${loaded} | ${back2}`);
+  // read with this order: Plant Data columns PRODUCT, WERKS, STAWN, DISMM first; also in the downloaded file
+  await page.click('#btnRead'); await page.waitForFunction(() => /hidden|rror|No /.test(document.getElementById('readState').textContent) && !document.getElementById('btnRead').disabled);
+  const ord = await page.evaluate(() => ({ f: sheets.S_MARC.fields.slice(0, 4).join(','), n: sheets.S_MARC.rows.length, v: sheets.S_MARC.rows.map(r => r.cells.DISMM.value).join(','),
+    grid: (() => { activeTab = 'S_MARC'; renderGrid(); return [...document.querySelectorAll('#grid th')].slice(2, 6).map(t => t.childNodes[0].textContent).join(','); })() }));
+  const [dlo] = await Promise.all([page.waitForEvent('download'), page.click('#btnReadDl')]);
+  const oPath = path.join(__dirname, 'read_ordered.xml'); await dlo.saveAs(oPath);
+  const reo = await page.evaluate(x => { const r = parseWorkbook(x); return [r.sheets.S_MARC.fields.slice(0, 4).join(','), r.sheets.S_MARC.rows.length, r.sheets.S_MARA.fields.includes('GROES')].join('|'); }, fs.readFileSync(oPath, 'utf8'));
+  ok('29d column order: Plant Data starts with PRODUCT, WERKS, STAWN, DISMM in the grid and in the downloaded file (loads again, values kept)',
+    ord.f === 'PRODUCT,WERKS,STAWN,DISMM' && ord.grid === 'PRODUCT,WERKS,STAWN,DISMM' && ord.n > 0 && reo === `PRODUCT,WERKS,STAWN,DISMM|${ord.n}|true`, JSON.stringify(ord) + ' | ' + reo);
   ok('26 no JavaScript errors on the page', errors.length === 0, errors.join(' | '));
   await page.screenshot({ path: path.join(__dirname, 'screenshot.png'), fullPage: true });
   await browser.close();
