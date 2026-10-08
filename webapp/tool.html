@@ -1373,8 +1373,9 @@ function stawnItems(h, product) {
   return out;
 }
 // --- commodity code (MARC-STAWN) through the RAP service ZMM_MATMASS_STAWN_O2 (OData V2, static action setCode), see abap/README.md
-// One $batch per call, one change set per material/plant with "POST setCode?Material='…'&Plant='…'&Code='…'" (function
-// import). The action writes MARC-STAWN and answers 200 with Previous, Changed, MessageType ('S'|'E'), Message.
+// One $batch per call, one change set per material with "POST setCode?Material='…'&Plant='…'&Code='…'" per plant (function
+// import). The action plans the classification in /SAPSLL/MARITC (shown as MARC-STAWN) and answers 200 with Previous,
+// Changed, MessageType ('S'|'E'), Message.
 // CSRF as for every Gateway service: token from a GET on the service root with "X-CSRF-Token: Fetch"; the function import
 // name is taken from $metadata (the one ending in "setCode").
 let csrfStawn = null, stawnFn = null;
@@ -1399,12 +1400,16 @@ const v2Lit = v => encodeURIComponent(`'${String(v).replace(/'/g, "''")}'`);
 const v2Err = (body, status) => { const m = body && body.error && body.error.message; return `HTTP ${status}: ${(m && (m.value || m)) || ''}`; };
 async function stawnBatch(items) {   // -> [{ status, body }] in the order of items
   if (!csrfStawn || !stawnFn) await fetchStawnToken();
+  // one change set (= one LUW in SAP) per material: the code is kept per material and country, so the plants of a
+  // material must be checked together (the service rejects two different codes for plants of the same country)
+  const groups = [];
+  items.forEach((it, i) => { let g = groups.find(x => x.material === it.material); if (!g) groups.push(g = { material: it.material, idx: [] }); g.idx.push(i); });
   const boundary = 'batch_' + Math.random().toString(36).slice(2);
-  let payload = '';
-  items.forEach((it, i) => {
+  let payload = '', id = 0;
+  groups.forEach(g => {
     const cs = 'changeset_' + Math.random().toString(36).slice(2);
-    payload += `--${boundary}\r\nContent-Type: multipart/mixed;boundary=${cs}\r\n\r\n--${cs}\r\n` +
-      httpPart({ method: 'POST', path: `${stawnFn}?Material=${v2Lit(it.material)}&Plant=${v2Lit(it.plant)}&Code=${v2Lit(it.commodityCode)}` }, i + 1) + `--${cs}--\r\n`;
+    payload += `--${boundary}\r\nContent-Type: multipart/mixed;boundary=${cs}\r\n\r\n` + g.idx.map(i => { const it = items[i];
+      return `--${cs}\r\n` + httpPart({ method: 'POST', path: `${stawnFn}?Material=${v2Lit(it.material)}&Plant=${v2Lit(it.plant)}&Code=${v2Lit(it.commodityCode)}` }, ++id); }).join('') + `--${cs}--\r\n`;
   });
   payload += `--${boundary}--\r\n`;
   const send = () => fetch(withParams(stawnBase() + '$batch'), { method: 'POST', credentials: 'include', body: payload,
@@ -1416,11 +1421,15 @@ async function stawnBatch(items) {   // -> [{ status, body }] in the order of it
   if (!r.ok) throw new Error(`$batch → HTTP ${r.status}: ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200)}`);
   const m = (r.headers.get('content-type') || '').match(/boundary=([^;]+)/i);
   if (!m) throw new Error('$batch → response without multipart boundary');
-  return splitMultipart(text, m[1].replace(/"/g, '').trim()).map(part => {
+  const out = new Array(items.length);
+  splitMultipart(text, m[1].replace(/"/g, '').trim()).forEach((part, gi) => {
+    const g = groups[gi]; if (!g) return;
     const cm = part.substring(0, 300).match(/Content-Type:\s*multipart\/mixed;\s*boundary=([^\s;]+)/i);
-    const one = cm ? splitMultipart(part, cm[1].replace(/"/g, '')).map(parseHttp)[0] : parseHttp(part);
-    return one || { status: 0, body: null };
+    const answers = cm ? splitMultipart(part, cm[1].replace(/"/g, '')).map(parseHttp) : [parseHttp(part)];
+    // a failed change set comes back as one error response for all its requests
+    g.idx.forEach((i, k) => { out[i] = answers.length === g.idx.length ? answers[k] : answers[0]; });
   });
+  return out.map(a => a || { status: 0, body: null });
 }
 async function sendStawn(list) {   // list: [{ h, product }] -> Map product -> { steps, error, labels }
   const res = new Map(); const items = [];

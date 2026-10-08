@@ -1,34 +1,42 @@
 *"* Behavior pool ZBP_I_MATMASS_STAWN, tab "Local Types" (replace the generated content with this file).
 *"*
-*"* Static action setCode( Material, Plant, Code ) writes the commodity code MARC-STAWN of one material/plant.
-*"* The app calls it once per material/plant, one change set each in a $batch; RAP saves and commits per change set.
+*"* Static action setCode( Material, Plant, Code ) sets the commodity code of a material for the country of the plant.
+*"* The app calls it once per material/plant; all plants of one material in one change set (one LUW).
 *"* A rejected item comes back with MessageType 'E' and the reason in Message (no FAILED), so the result reaches the app.
 *"*
-*"* MARC-STAWN is written directly (UPDATE in the save phase, lock EMMARCE taken in the action): on DS4 (8 Oct 2026)
-*"* neither API_PRODUCT_SRV (property Commodity, HTTP 204, value not saved) nor BAPI_MATERIAL_SAVEDATA
-*"* (PLANTDATA-COMM_CODE, M3 810 "No changes made") updates the field. No change document is written; the checks of
-*"* MM02 do not run. Checked here: M_MATE_WRK activity 02 for the plant, M_MATE_MAT activity 02 if the material has an
-*"* authorization group, material and plant exist, code = digits and spaces, max. 17. CSRF and S_SERVICE: Gateway.
+*"* Where the code lives: in S/4HANA every read of MARC-STAWN goes through proxy view NSDM_V_MARC (CDS NSDM_E_MARC),
+*"* which returns /SAPSLL/MARITC-CCNGN (first 17 characters) for the numbering scheme of the plant's country
+*"* (/SAPSLL/TUNOS, CTSTY '01'), valid today (note 3026397). The physical MARC-STAWN is not read (DS4 test 8 Oct 2026).
+*"* So the classification is maintained in /SAPSLL/MARITC through SAP's API /SAPSLL/API_COMCO_CLS_DISTR (note 2458080,
+*"* delta mode), one code per material and numbering scheme:
+*"*   - new code: the current record ends yesterday, the new code is valid from today to 31.12.9999
+*"*     (a current record that starts today is changed instead);
+*"*   - "" clears: the current record ends yesterday (or is deleted if it starts today).
+*"* Checked here before anything is planned: M_MATE_WRK activity 02 for the plant, M_MATE_MAT activity 02 if the
+*"* material has an authorization group, material, plant and numbering scheme exist, the code exists in
+*"* /SAPSLL/CLSNR for the scheme (spaces ignored: 84099900 finds "840999 00"), no future-dated classification.
+*"* The API commits itself (BOPF save), which is not allowed in the RAP save phase: it is called IN BACKGROUND TASK
+*"* (tRFC, destination NONE) and runs right after the commit of the change set. Its own messages (e.g. product locked)
+*"* do not reach the app; failed calls are visible in SM58.
 
-"! Changes collected in the interaction phase, written in the save phase.
+"! Requests collected in the interaction phase, sent to the API in the save phase.
 CLASS lcl_buffer DEFINITION FINAL.
   PUBLIC SECTION.
-    TYPES: BEGIN OF ty_change,
+    TYPES: BEGIN OF ty_request,
              matnr TYPE matnr,
-             werks TYPE werks_d,
-             stawn TYPE stawn,
-           END OF ty_change,
-           tt_change TYPE SORTED TABLE OF ty_change WITH UNIQUE KEY matnr werks.
-    CLASS-DATA changes TYPE tt_change.
-    CLASS-METHODS add IMPORTING is_change TYPE ty_change.
+             stcts TYPE /sapsll/stcts,
+             comco TYPE /sapsll/comco,
+             plant TYPE werks_d,
+           END OF ty_request,
+           tt_request TYPE SORTED TABLE OF ty_request WITH UNIQUE KEY matnr stcts.
+    CLASS-DATA requests TYPE tt_request.
+    CLASS-DATA lines    TYPE /sapsll/api_comco_cls_distr_st.
+    CLASS-METHODS clear.
 ENDCLASS.
 
 CLASS lcl_buffer IMPLEMENTATION.
-  METHOD add.
-    INSERT is_change INTO TABLE changes.
-    IF sy-subrc <> 0.
-      MODIFY TABLE changes FROM is_change.
-    ENDIF.
+  METHOD clear.
+    CLEAR: requests, lines.
   ENDMETHOD.
 ENDCLASS.
 
@@ -62,7 +70,7 @@ CLASS lhc_stawn IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD lock.
-    " not used by the static action (it locks in PROCESS); here for instance access via EML
+    " not used by the static action; required for the lock master
     LOOP AT keys INTO DATA(ls_key).
       CALL FUNCTION 'ENQUEUE_EMMARCE'
         EXPORTING
@@ -99,8 +107,17 @@ CLASS lhc_stawn IMPLEMENTATION.
 
   METHOD process.
     DATA lv_matnr TYPE matnr.
-    DATA lv_new   TYPE stawn.
     DATA lv_begru TYPE begru.
+    DATA lv_land1 TYPE land1.
+    DATA lv_stcts TYPE /sapsll/stcts.
+    DATA lv_nosct TYPE /sapsll/nosct.
+    DATA lv_code  TYPE /sapsll/comco.
+    DATA ls_cur   TYPE /sapsll/maritc.
+    DATA lv_input TYPE string.
+    DATA lv_like  TYPE string.
+
+    DATA(lv_today)     = sy-datum.
+    DATA(lv_yesterday) = CONV d( sy-datum - 1 ).
 
     rs_out = CORRESPONDING #( is_in ).
     rs_out-changed     = abap_false.
@@ -119,14 +136,6 @@ CLASS lhc_stawn IMPLEMENTATION.
       rs_out-message = |Material { is_in-material }: invalid material number|.
       RETURN.
     ENDIF.
-
-    " format: digits and spaces, max. 17 characters (data element STAWN); "" clears the code
-    lv_new = condense( is_in-code ).
-    IF NOT lv_new CO '0123456789 '.
-      rs_out-message = |Commodity code "{ is_in-code }": digits and spaces only, max. 17 characters|.
-      RETURN.
-    ENDIF.
-    rs_out-code = lv_new.
 
     " authorization per plant and, if the material has one, per authorization group
     AUTHORITY-CHECK OBJECT 'M_MATE_WRK'
@@ -151,38 +160,112 @@ CLASS lhc_stawn IMPLEMENTATION.
       ENDIF.
     ENDIF.
 
-    SELECT SINGLE stawn FROM marc
-      WHERE matnr = @lv_matnr AND werks = @is_in-plant
-      INTO @rs_out-previous.
+    " numbering scheme of the plant's country, as in proxy view NSDM_E_MARC
+    SELECT SINGLE land1 FROM t001w WHERE werks = @is_in-plant INTO @lv_land1.
     IF sy-subrc <> 0.
-      rs_out-message = |Material { is_in-material } is not maintained in plant { is_in-plant }|.
+      rs_out-message = |Plant { is_in-plant } does not exist|.
       RETURN.
     ENDIF.
-    IF lv_new = rs_out-previous.
+    SELECT SINGLE stcts FROM /sapsll/tunos
+      WHERE land1 = @lv_land1 AND ctsty = '01'
+      INTO @lv_stcts.
+    IF sy-subrc <> 0.
+      rs_out-message = |No commodity code numbering scheme for country { lv_land1 } of plant { is_in-plant } (/SAPSLL/TUNOS)|.
+      RETURN.
+    ENDIF.
+
+    " current classification (valid today)
+    SELECT SINGLE * FROM /sapsll/maritc
+      WHERE matnr = @lv_matnr AND stcts = @lv_stcts
+        AND datab <= @lv_today AND datbi >= @lv_today
+      INTO @ls_cur.
+    DATA(lv_has_cur) = xsdbool( sy-subrc = 0 ).
+    rs_out-previous = ls_cur-ccngn.
+
+    " the code as maintained for the scheme (/SAPSLL/CLSNR, valid today); spaces in the input are ignored
+    lv_input = condense( val = is_in-code del = ` ` to = `` ).
+    IF lv_input IS NOT INITIAL.
+      SELECT SINGLE nosct FROM /sapsll/nosca
+        WHERE stcts = @lv_stcts AND datab <= @lv_today AND datbi >= @lv_today
+        INTO @lv_nosct.
+      IF sy-subrc <> 0.
+        rs_out-message = |Numbering scheme { lv_stcts } has no valid content today (/SAPSLL/NOSCA)|.
+        RETURN.
+      ENDIF.
+      lv_like = substring( val = lv_input len = 1 ) && `%`.
+      SELECT ccngn FROM /sapsll/clsnr
+        WHERE nosct = @lv_nosct AND ccngn LIKE @lv_like
+          AND datab <= @lv_today AND datbi >= @lv_today
+        INTO TABLE @DATA(lt_codes).
+      LOOP AT lt_codes INTO DATA(ls_code).
+        IF condense( val = ls_code-ccngn del = ` ` to = `` ) = lv_input.
+          lv_code = ls_code-ccngn.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+      IF lv_code IS INITIAL.
+        rs_out-message = |Commodity code "{ is_in-code }" does not exist in numbering scheme { lv_stcts } today (/SAPSLL/CLSNR)|.
+        RETURN.
+      ENDIF.
+    ENDIF.
+    rs_out-code = lv_code.
+
+    " one code per material and scheme: plants of the same country in this request must agree
+    READ TABLE lcl_buffer=>requests INTO DATA(ls_req) WITH TABLE KEY matnr = lv_matnr stcts = lv_stcts.
+    IF sy-subrc = 0.
+      IF ls_req-comco = lv_code.
+        rs_out-messagetype = 'S'.
+        rs_out-message     = |Same commodity code as plant { ls_req-plant } (one code per material for scheme { lv_stcts })|.
+      ELSE.
+        rs_out-message = |Plant { ls_req-plant } already sets "{ ls_req-comco }" for scheme { lv_stcts }; one code per material and country|.
+      ENDIF.
+      RETURN.
+    ENDIF.
+
+    IF lv_code = ls_cur-ccngn.
       rs_out-messagetype = 'S'.
       rs_out-message     = 'unchanged'.
       RETURN.
     ENDIF.
 
-    " same lock as the material master transaction uses for plant data; released with the commit of the change set
-    CALL FUNCTION 'ENQUEUE_EMMARCE'
-      EXPORTING
-        matnr          = lv_matnr
-        werks          = is_in-plant
-      EXCEPTIONS
-        foreign_lock   = 1
-        system_failure = 2
-        OTHERS         = 3.
-    IF sy-subrc <> 0.
-      rs_out-message = COND #( WHEN sy-subrc = 1 THEN |Material { is_in-material } plant { is_in-plant } is locked by { sy-msgv1 }|
-                               ELSE |Material { is_in-material } plant { is_in-plant }: lock failed| ).
+    " a classification that starts in the future would overlap; leave that to manual maintenance
+    SELECT COUNT(*) FROM /sapsll/maritc
+      WHERE matnr = @lv_matnr AND stcts = @lv_stcts AND datab > @lv_today.
+    IF sy-dbcnt > 0.
+      rs_out-message = |Material { is_in-material } has a future-dated classification for scheme { lv_stcts }; maintain it manually|.
       RETURN.
     ENDIF.
 
-    lcl_buffer=>add( VALUE #( matnr = lv_matnr werks = is_in-plant stawn = lv_new ) ).
+    " lines for /SAPSLL/API_COMCO_CLS_DISTR (delta mode)
+    IF lv_has_cur = abap_true.
+      IF ls_cur-datab < lv_today.
+        " current record ends yesterday
+        INSERT VALUE #( matnr = lv_matnr stcts = lv_stcts comco = ls_cur-ccngn
+                        datab = ls_cur-datab datbi = lv_yesterday ) INTO TABLE lcl_buffer=>lines.
+        IF lv_code IS NOT INITIAL.
+          INSERT VALUE #( matnr = lv_matnr stcts = lv_stcts comco = lv_code
+                          datab = lv_today datbi = '99991231' ) INTO TABLE lcl_buffer=>lines.
+        ENDIF.
+      ELSEIF lv_code IS NOT INITIAL.
+        " current record starts today: change its code
+        INSERT VALUE #( matnr = lv_matnr stcts = lv_stcts comco = lv_code
+                        datab = ls_cur-datab datbi = ls_cur-datbi ) INTO TABLE lcl_buffer=>lines.
+      ELSE.
+        " current record starts today and the code is cleared: delete it
+        INSERT VALUE #( matnr = lv_matnr stcts = lv_stcts comco = ls_cur-ccngn
+                        datab = ls_cur-datab datbi = ls_cur-datbi deletion = abap_true ) INTO TABLE lcl_buffer=>lines.
+      ENDIF.
+    ELSE.
+      INSERT VALUE #( matnr = lv_matnr stcts = lv_stcts comco = lv_code
+                      datab = lv_today datbi = '99991231' ) INTO TABLE lcl_buffer=>lines.
+    ENDIF.
+    INSERT VALUE #( matnr = lv_matnr stcts = lv_stcts comco = lv_code plant = is_in-plant ) INTO TABLE lcl_buffer=>requests.
+
     rs_out-changed     = abap_true.
     rs_out-messagetype = 'S'.
-    rs_out-message     = 'Commodity code changed (MARC-STAWN)'.
+    rs_out-message     = COND #( WHEN lv_code IS INITIAL
+                                 THEN |Commodity code of scheme { lv_stcts } ends { lv_yesterday DATE = USER }|
+                                 ELSE |Commodity code for scheme { lv_stcts } valid from { lv_today DATE = USER }| ).
   ENDMETHOD.
 
 ENDCLASS.
@@ -205,19 +288,20 @@ CLASS lsc_zi_matmass_stawn IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD save.
-    " direct update of MARC-STAWN (see header); the RAP framework commits afterwards
-    LOOP AT lcl_buffer=>changes INTO DATA(ls_change).
-      UPDATE marc SET stawn = @ls_change-stawn
-        WHERE matnr = @ls_change-matnr AND werks = @ls_change-werks.
-    ENDLOOP.
+    " the API saves and commits itself (BOPF): planned as tRFC, executed after the commit of this LUW
+    IF lcl_buffer=>lines IS NOT INITIAL.
+      CALL FUNCTION '/SAPSLL/API_COMCO_CLS_DISTR' IN BACKGROUND TASK
+        EXPORTING
+          it_comco_cls_distr = lcl_buffer=>lines.
+    ENDIF.
   ENDMETHOD.
 
   METHOD cleanup.
-    CLEAR lcl_buffer=>changes.
+    lcl_buffer=>clear( ).
   ENDMETHOD.
 
   METHOD cleanup_finalize.
-    CLEAR lcl_buffer=>changes.
+    lcl_buffer=>clear( ).
   ENDMETHOD.
 
 ENDCLASS.
