@@ -1706,6 +1706,10 @@ let tpl = null;                 // bundled template: text and parsed sheets (fie
 const readSel = new Set();      // selected fields "S_MARM.BRGEW"
 let pkSheet = 'S_MARA', productList = null, productListKey = '';
 
+// Template fields that API_PRODUCT_2 lacks but the standard V2 API_PRODUCT_SRV returns (read only): the commodity code.
+// A_ProductPlant-Commodity is the value S/4 shows as MARC-STAWN (/SAPSLL/MARITC for the plant's country, DS4 8 Oct 2026).
+const V2_READ = { S_MARC: { STAWN: 'Commodity' } };
+const v2Read = (sheet, f) => !!(V2_READ[sheet] && V2_READ[sheet][f]);
 function nodeOfField(sheet, f) { return TREE.find(n => n.sheet === sheet && !n.expand && n.fields[f] && !n.fields[f].startsWith('(')); }
 async function loadTemplate() {
   if (tpl) return tpl;
@@ -1717,7 +1721,7 @@ function fieldLabel(sheet, f) { const d = tpl && tpl.sheets[sheet] && tpl.sheets
 function selectedFields() {
   if (document.querySelector('input[name=scope]:checked').value === 'fields') return new Set(readSel);
   const all = new Set();
-  for (const st of READ_SHEETS) for (const f of (tpl && tpl.sheets[st] ? tpl.sheets[st].fields : [])) if (nodeOfField(st, f)) all.add(`${st}.${f}`);
+  for (const st of READ_SHEETS) for (const f of (tpl && tpl.sheets[st] ? tpl.sheets[st].fields : [])) if (nodeOfField(st, f) || v2Read(st, f)) all.add(`${st}.${f}`);
   return all;
 }
 
@@ -1763,15 +1767,15 @@ function renderPicker() {
   const q2 = $('pkSearch').value.trim().toUpperCase();
   const box = $('pkFields'); box.innerHTML = '';
   const fields = tpl.sheets[pkSheet].fields.filter(f => !q2 || f.includes(q2) || fieldLabel(pkSheet, f).toUpperCase().includes(q2));
-  const free = fields.filter(f => nodeOfField(pkSheet, f) && !SHEET_KEYS[pkSheet].includes(f));
+  const free = fields.filter(f => (nodeOfField(pkSheet, f) || v2Read(pkSheet, f)) && !SHEET_KEYS[pkSheet].includes(f));
   const allOn = free.length && free.every(f => readSel.has(`${pkSheet}.${f}`));
   const wl = document.createElement('label'); wl.innerHTML = `<input type="checkbox" ${allOn ? 'checked' : ''}> <b>All fields of this sheet${q2 ? ' (search result)' : ''}</b>`;
   wl.querySelector('input').onchange = e => { free.forEach(f => e.target.checked ? readSel.add(`${pkSheet}.${f}`) : readSel.delete(`${pkSheet}.${f}`)); renderTokens(); renderPicker(); };
   box.appendChild(wl);
   for (const f of fields) {
-    const key = SHEET_KEYS[pkSheet].includes(f), api = !!nodeOfField(pkSheet, f);
+    const key = SHEET_KEYS[pkSheet].includes(f), api = !!nodeOfField(pkSheet, f) || v2Read(pkSheet, f);
     const l = document.createElement('label'); if (key || !api) l.className = 'key';
-    l.innerHTML = `<input type="checkbox" ${key || readSel.has(`${pkSheet}.${f}`) ? 'checked' : ''} ${key || !api ? 'disabled' : ''}> ${fieldLabel(pkSheet, f)} <span class="t">&nbsp;${f}${key ? ' · key' : ''}${api ? '' : ' · not in API'}</span>`;
+    l.innerHTML = `<input type="checkbox" ${key || readSel.has(`${pkSheet}.${f}`) ? 'checked' : ''} ${key || !api ? 'disabled' : ''}> ${fieldLabel(pkSheet, f)} <span class="t">&nbsp;${f}${key ? ' · key' : ''}${v2Read(pkSheet, f) ? ' · V2 API (read only)' : api ? '' : ' · not in API'}</span>`;
     l.querySelector('input').onchange = e => { e.target.checked ? readSel.add(`${pkSheet}.${f}`) : readSel.delete(`${pkSheet}.${f}`); renderTokens(); renderPicker(); };
     box.appendChild(l);
   }
@@ -1923,7 +1927,11 @@ function selectionItem(sel) {
     return it;
   };
   get('Product');
-  for (const key of sel) { const [st, f] = key.split('.'); const n = nodeOfField(st, f); if (n) get(n.id).data[n.fields[f]] = 1; }
+  for (const key of sel) {
+    const [st, f] = key.split('.'); const n = nodeOfField(st, f);
+    if (n) get(n.id).data[n.fields[f]] = 1;
+    else if (v2Read(st, f)) { const kn = nodeOfField(st, SHEET_KEYS[st][1]); if (kn) get(kn.id); }   // rows of the sheet (keys)
+  }
   return items.Product;
 }
 // API value -> template cell
@@ -2054,6 +2062,7 @@ $('btnRead').onclick = async () => {
     await Promise.all(Array.from({ length: parallel }, worker));
     const rowsBySheet = {};
     for (const p of products) if (found.has(p)) productRows(p, found.get(p), sel, rowsBySheet);
+    await readV2Fields([...found.keys()], sel, rowsBySheet);
     const { res, hiddenTotal } = buildFromSap(rowsBySheet, sel);
     sheets = res.sheets; results.clear(); buildIndex();
     const stamp = new Date().toISOString().replace(/[:T]/g, '-').substring(0, 16);
@@ -2071,6 +2080,31 @@ $('btnRead').onclick = async () => {
   finally { $('btnRead').disabled = false; }
 };
 $('btnReadDl').onclick = exportXml;
+// Fields of V2_READ: GET A_ProductPlant?$filter=Product eq 'A' or …&$select=Product,Plant,<props> (20 products per GET,
+// paging via __next), values put into the plant rows built from the V4 read.
+async function readV2Fields(products, sel, rowsBySheet) {
+  const want = Object.entries(V2_READ.S_MARC).filter(([f]) => sel.has(`S_MARC.${f}`));
+  if (!want.length || !products.length || !rowsBySheet.S_MARC) return;
+  const t = Date.now(), vals = new Map(); let n = 0;
+  for (let i = 0; i < products.length; i += 20) {
+    const flt = products.slice(i, i + 20).map(p => `Product eq '${String(p).replace(/'/g, "''")}'`).join(' or ');
+    let url = withParams(v2Base() + `A_ProductPlant?$filter=${encodeURIComponent(flt)}&$select=Product,Plant,${want.map(w => w[1]).join(',')}&$format=json`);
+    while (url) {
+      const r = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+      const text = await r.text();
+      if (looksLikeLogonPage(r, text)) throw new Error('logon page: session expired');
+      let b = null; try { b = JSON.parse(text); } catch (e) { /* not JSON */ }
+      if (!r.ok || !b || !b.d) throw new Error(`V2 A_ProductPlant → ${v2Err(b, r.status)}`);
+      for (const x of b.d.results || []) { vals.set(`${x.Product}|${x.Plant}`, x); n++; }
+      url = b.d.__next ? withParams(b.d.__next) : null;
+    }
+  }
+  for (const row of rowsBySheet.S_MARC) {
+    const x = vals.get(`${row.PRODUCT}|${row.WERKS}`); if (!x) continue;
+    for (const [f, prop] of want) row[f] = x[prop] == null ? '' : String(x[prop]);
+  }
+  log(`  V2 ${v2Base()}A_ProductPlant: ${want.map(w => `${w[0]} (${w[1]})`).join(', ')} for ${n} plant row(s) in ${((Date.now() - t) / 1000).toFixed(1)} s`);
+}
 
 $('gridFilter').oninput = () => { gridPage = 0; renderGrid(); };
 $('showHidden').onchange = () => renderGrid();

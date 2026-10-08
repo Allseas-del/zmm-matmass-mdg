@@ -242,7 +242,8 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   await page.uncheck('#autoDl');
   // Read from SAP: selection of fields and products into the Product template; columns hidden; round trip with Change
   await page.click('#srcSap'); await page.waitForFunction(() => typeof tpl !== 'undefined' && tpl && document.querySelector('#selTokens button'));
-  await page.evaluate(() => { readSel.clear(); ['S_MARA.GROES', 'S_MARA.MAKTX', 'S_MARC.DISMM', 'S_MARM.BRGEW'].forEach(k => readSel.add(k)); renderTokens(); });
+  await page.evaluate(async () => { readSel.clear(); ['S_MARA.GROES', 'S_MARA.MAKTX', 'S_MARC.DISMM', 'S_MARM.BRGEW', 'S_MARC.STAWN'].forEach(k => readSel.add(k)); renderTokens();
+    await stawnBatch([{ material: 'ZTEST-001', plant: 'NL01', commodityCode: '84099900' }]); });
   await page.click('#selTokens button'); await page.waitForSelector('#pkFields label');
   const pk = await page.$$eval('#pkFields label', ls => ls.length);
   await page.selectOption('#critRows .crit .cOp', 'sw'); await page.fill('#critRows .crit .cLow', 'ZTEST');
@@ -257,6 +258,8 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   const rd = await page.evaluate(() => ({
     mara: sheets.S_MARA.rows.map(r => [prodOf(r), r.cells.GROES.value, r.cells.SPRAS.value, r.cells.MAKTX.value, r.cells.MEINS.value, r.cells.BISMT.value].join('|')),
     marc: sheets.S_MARC.rows.map(r => [prodOf(r), r.cells.WERKS.value, r.cells.DISMM.value].join('|')),
+    stawn: sheets.S_MARC.rows.map(r => [prodOf(r), r.cells.WERKS.value, r.cells.STAWN.value].join('|')),
+    stawnPick: (() => { pkSheet = 'S_MARC'; renderPicker(); const l = [...document.querySelectorAll('#pkFields label')].find(x => /STAWN/.test(x.textContent)); return l ? [l.querySelector('input').disabled, /V2 API \(read only\)/.test(l.textContent)].join(',') : 'none'; })(),
     marm: sheets.S_MARM.rows.map(r => [prodOf(r), r.cells.MEINH.value, r.cells.BRGEW.value].join('|')),
     mbew: (sheets.S_MBEW || { rows: [] }).rows.length,
     hid: [sheets.S_MARA.hidden.has('BISMT'), sheets.S_MARA.hidden.has('GROES'), sheets.S_MARA.hidden.has('PRODUCT'), sheets.S_MARM.hidden.has('BRGEW'), sheets.S_MARM.hidden.has('UMREZ')].join(','),
@@ -268,6 +271,8 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
     rd.marc[0] === `ZTEST-001|${sap1._ProductPlant[0].Plant}|${sap1._ProductPlant[0]._ProductPlantSupplyPlanning.MRPType}` &&
     rd.marm.includes(`ZTEST-001|${sap1._ProductUnitOfMeasure[0].AlternativeISOUnit}|${sap1._ProductUnitOfMeasure[0].GrossWeight}`) && rd.mbew === 0 && st.batch - r0.batch === 1 && pk > 10,
     `${cnt} | filter=${flt} | ${rd.mara.join(' ; ')} | marc=${rd.marc.join(',')} | marm=${rd.marm.join(',')} | batches=${st.batch - r0.batch}`);
+  ok('27s read from SAP: commodity code STAWN selectable ("V2 API (read only)") and read from V2 A_ProductPlant-Commodity into the plant rows',
+    rd.stawnPick === 'false,true' && rd.stawn.includes('ZTEST-001|NL01|84099900') && (st.v2get || 0) >= 1, `${rd.stawnPick} | ${rd.stawn.join(',')} | v2get=${st.v2get}`);
   ok('27a columns: not selected and empty hidden (BISMT), selected and keys visible (GROES, PRODUCT, BRGEW), grid shows only visible columns; mode set to Change',
     rd.hid === 'true,false,false,false,true' && rd.mode === 'change' && rd.grid < 10, `hidden=${rd.hid} mode=${rd.mode} gridColumns=${rd.grid} | ${rs}`);
   const [dlr] = await Promise.all([page.waitForEvent('download'), page.click('#btnReadDl')]);

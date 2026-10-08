@@ -374,6 +374,15 @@ const server = http.createServer((req, res) => {
     if (u.pathname.startsWith(SVC_V2)) {
       const rel2 = u.pathname.substring(SVC_V2.length);
       if (req.method === 'GET' && rel2 === '') return send(200, '{"d":{"EntitySets":["A_Product"]}}', 'application/json', { 'x-csrf-token': TOKEN_V2 });
+      // GET A_ProductPlant?$filter=Product eq 'A' or …&$select=Product,Plant,Commodity (Commodity = the code set through the STAWN service)
+      if (req.method === 'GET' && rel2 === 'A_ProductPlant') {
+        stats.v2get = (stats.v2get || 0) + 1;
+        const ids = [...(u.searchParams.get('$filter') || '').matchAll(/Product eq '((?:[^']|'')*)'/g)].map(m => m[1].replace(/''/g, "'"));
+        const results = [];
+        for (const id of ids) { const prod = store.get(id); if (!prod) continue;
+          for (const pl of prod.navs._ProductPlant || []) results.push({ Product: id, Plant: pl.data.Plant, Commodity: pl.data.ZZ_STAWN || '' }); }
+        return send(200, JSON.stringify({ d: { results } }));
+      }
       if (req.headers['x-csrf-token'] !== TOKEN_V2) return send(403, '{"error":{"message":{"value":"CSRF token validation failed"}}}', 'application/json', { 'x-csrf-token': 'Required' });
       if (req.method === 'POST' && rel2 === 'A_Product') {
         stats.v2post = (stats.v2post || 0) + 1;
