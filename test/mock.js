@@ -5,7 +5,7 @@ const http = require('http'), fs = require('fs'), path = require('path'), vm = r
 const PORT = parseInt(process.env.PORT || '8099', 10);
 const SVC = '/sap/opu/odata4/sap/api_product/srvd_a2x/sap/product/0002/';
 const TOOL = path.join(__dirname, '../webapp/tool.html');
-const SVC_V2 = '/sap/opu/odata/sap/API_PRODUCT_SRV/'; const TOKEN_V2 = 'tokv2-' + Date.now(); const TOKEN_STAWN = 'tokstawn-' + Date.now();
+const SVC_V2 = '/sap/opu/odata/sap/API_PRODUCT_SRV/'; const TOKEN_V2 = 'tokv2-' + Date.now(); const TOKEN_STAWN = 'tokstawn-' + Date.now(); const SVC_STAWN = '/sap/opu/odata/sap/ZMM_MATMASS_STAWN_SRV/';
 
 // --- property lists taken from the tool's own mapping table (what the tool can send) plus keys/computed fields
 const html = fs.readFileSync(TOOL, 'utf8');
@@ -323,30 +323,43 @@ const server = http.createServer((req, res) => {
     if (u.pathname === '/__stats') return send(200, JSON.stringify({ ...stats, products: [...store.keys()] }));
     if (u.pathname === '/__product') return send(200, JSON.stringify(store.has(u.searchParams.get('id')) ? serialize(store.get(u.searchParams.get('id')), store.get(u.searchParams.get('id'))) : null));
     if (u.pathname === '/__reset') { store = new Map(); Object.keys(stats).forEach(k => stats[k] = 0); return send(200, '{}'); }
-    // Custom ABAP service for the commodity code (MARC-STAWN), see abap/README.md: the Product API has no such field.
-    // Stored on the plant node as ZZ_STAWN (visible in /__product); moves the product's change timestamp like the BAPI does.
-    if (u.pathname === '/sap/bc/zmm_matmass/stawn') {
-      // CSRF as in the ABAP handler: GET with "X-CSRF-Token: Fetch" returns the token; POST needs JSON and the token
-      if (req.method === 'GET' && /^fetch$/i.test(req.headers['x-csrf-token'] || '')) return send(200, '{}', 'application/json', { 'x-csrf-token': TOKEN_STAWN });
-      if (req.method !== 'POST') return send(405, '{"message":"POST only"}');
-      if (!/^application\/json/i.test(req.headers['content-type'] || '')) { stats.stawnRejected = (stats.stawnRejected || 0) + 1; return send(415, '{"message":"Content-Type application/json required"}'); }
-      if (req.headers['x-csrf-token'] !== TOKEN_STAWN) { stats.stawnRejected = (stats.stawnRejected || 0) + 1; return send(403, '{"message":"CSRF token validation failed"}', 'application/json', { 'x-csrf-token': 'Required' }); }
-      stats.stawnPosts = (stats.stawnPosts || 0) + 1;
-      let b; try { b = JSON.parse(data || '{}'); } catch (e) { return send(400, '{"message":"invalid JSON"}'); }
-      const items = [];
-      for (const it of (b.items || [])) {
+    // Custom Gateway service ZMM_MATMASS_STAWN_SRV (SEGW, OData V2) for the commodity code (MARC-STAWN), see abap/README.md.
+    // Entity set StawnSet: POST { Material, Plant, Code } writes the code and answers 201 with Previous, Changed, Type, Message.
+    // Stored on the plant node as ZZ_STAWN (visible in /__product). CSRF as in Gateway.
+    if (u.pathname.startsWith(SVC_STAWN)) {
+      const rel = u.pathname.substring(SVC_STAWN.length);
+      if (req.method === 'GET' && rel === '') return send(200, '{"d":{"EntitySets":["StawnSet"]}}', 'application/json', { 'x-csrf-token': TOKEN_STAWN });
+      if (req.headers['x-csrf-token'] !== TOKEN_STAWN) { stats.stawnRejected = (stats.stawnRejected || 0) + 1; return send(403, '{"error":{"message":{"value":"CSRF token validation failed"}}}', 'application/json', { 'x-csrf-token': 'Required' }); }
+      const saveOne = it => {
         stats.stawnItems = (stats.stawnItems || 0) + 1;
-        const prod = store.get(String(it.material));
-        if (!prod) { items.push({ ...it, type: 'E', message: `Material ${it.material} does not exist` }); continue; }
-        const plant = (prod.navs._ProductPlant || []).find(p => p.data.Plant === it.plant);
-        if (!plant) { items.push({ ...it, type: 'E', message: `Material ${it.material} is not maintained in plant ${it.plant}` }); continue; }
-        const code = (it.commodityCode || '').trim();
-        if (!/^[0-9 ]{0,17}$/.test(code)) { items.push({ ...it, type: 'E', message: `Commodity code ${code} is not valid` }); continue; }
-        const previous = plant.data.ZZ_STAWN || ''; const changed = previous !== code;
-        if (changed) { plant.data.ZZ_STAWN = code; prod.data.LastChangeDateTime = stamp(); }
-        items.push({ ...it, commodityCode: code, previous, changed, type: 'S', message: changed ? `Material ${it.material} changed` : 'unchanged' });
+        const out = { Material: String(it.Material || ''), Plant: String(it.Plant || ''), Code: String(it.Code || '').trim(), Previous: '', Changed: false, Type: 'E', Message: '' };
+        const prod = store.get(out.Material);
+        if (!prod) { out.Message = `Material ${out.Material} does not exist`; return out; }
+        const plant = (prod.navs._ProductPlant || []).find(pl => pl.data.Plant === out.Plant);
+        if (!plant) { out.Message = `Material ${out.Material} is not maintained in plant ${out.Plant}`; return out; }
+        if (!/^[0-9 ]{0,17}$/.test(out.Code)) { out.Message = `Commodity code "${out.Code}": digits and spaces only, max. 17 characters`; return out; }
+        out.Previous = plant.data.ZZ_STAWN || ''; out.Changed = out.Previous !== out.Code; out.Type = 'S';
+        out.Message = out.Changed ? 'Commodity code changed (MARC-STAWN)' : 'unchanged';
+        if (out.Changed) plant.data.ZZ_STAWN = out.Code;
+        return out;
+      };
+      if (req.method === 'POST' && rel === 'StawnSet') { stats.stawnPosts = (stats.stawnPosts || 0) + 1; return send(201, JSON.stringify({ d: saveOne(JSON.parse(data || '{}')) })); }
+      if (req.method === 'POST' && rel === '$batch') {
+        stats.stawnPosts = (stats.stawnPosts || 0) + 1;
+        const b = (req.headers['content-type'].match(/boundary=([^;]+)/) || [])[1];
+        const ob = 'resp_' + Date.now(); let out = '';
+        for (const part of data.split('--' + b).slice(1).filter(x => !x.startsWith('--') && x.trim())) {
+          const cm = part.match(/multipart\/mixed;\s*boundary=([^\s;]+)/i);
+          const reqs = cm ? part.split('--' + cm[1]).slice(1).filter(x => !x.startsWith('--') && x.trim()).map(parseReq) : [parseReq(part)];
+          const cb = 'cs_' + Math.random().toString(36).slice(2);
+          out += `--${ob}\r\nContent-Type: multipart/mixed; boundary=${cb}\r\n\r\n` + reqs.map(q => {
+            const r = q.method === 'POST' && q.url === 'StawnSet' ? { status: 201, body: { d: saveOne(q.body || {}) } } : { status: 404, body: { error: { message: { value: 'not found ' + q.url } } } };
+            return `--${cb}\r\nContent-Type: application/http\r\n\r\n` + httpResp(r);
+          }).join('') + `--${cb}--\r\n`;
+        }
+        return send(202, out + `--${ob}--\r\n`, `multipart/mixed; boundary=${ob}`);
       }
-      return send(200, JSON.stringify({ items }));
+      return send(405, '{"error":{"message":{"value":"not supported"}}}');
     }
     // V2 API_PRODUCT_SRV: only POST A_Product with internal number assignment (DS4, 28 Sep 2026: Product "" -> 201, number assigned)
     if (u.pathname.startsWith(SVC_V2)) {

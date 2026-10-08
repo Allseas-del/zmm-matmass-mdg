@@ -1,70 +1,69 @@
-# Custom service for the commodity code (MARC-STAWN)
+# Gateway service ZMM_MATMASS_STAWN_SRV (commodity code MARC-STAWN)
 
-The released Product APIs do not carry the commodity code: on DS4 (8 Oct 2026) neither `API_PRODUCT_2` (V4,
-entity `ProductPlantInternationalTrade`: country/region of origin, CAS number, PRODCOM number, consumption tax
-code) nor `API_PRODUCT_SRV` (V2, `A_ProductPlantIntlTrd`) has a property for `MARC-STAWN`. MM02/MM03 hide the
-field and MM17 does not offer it either. The app therefore writes the column `STAWN` of the Plant Data sheet
-through this small ABAP service, which writes `MARC-STAWN` directly (UPDATE with lock `EMMARCE`). Tested on DS4 8 Oct
-2026: `BAPI_MATERIAL_SAVEDATA` (`PLANTDATA-COMM_CODE`) and the V2 property `Commodity` both leave the field unchanged.
-No change document is written; in S/4HANA International Trade the commodity code itself lives in `/SAPSLL/MARITC`
-(KBA 2432527), this service only maintains the MARC field.
+The released Product APIs do not write the commodity code: on DS4 (8 Oct 2026) `API_PRODUCT_2` (V4) has no such
+property, `API_PRODUCT_SRV` (V2, `A_ProductPlant-Commodity`) answers 204 but does not save it, and
+`BAPI_MATERIAL_SAVEDATA` (`PLANTDATA-COMM_CODE`) reports "No changes made". The app therefore writes the column
+`STAWN` of the Plant Data sheet through this small SEGW service, which updates `MARC-STAWN` directly.
+In S/4HANA International Trade the commodity code itself is kept in `/SAPSLL/MARITC` (KBA 2432527); this service
+only maintains the MARC field (decision 8 Oct 2026).
 
-## Objects (package ZMM_MATMASS, same transport as the app)
+## 1. SEGW (DS4 client 400, package ZMM_MATMASS, transport DS4K915674)
 
-| Object | Name | Source |
-|---|---|---|
-| Class | `ZCL_MM_MATMASS_STAWN` (interface `IF_HTTP_EXTENSION`) | `zcl_mm_matmass_stawn.clas.abap` (paste in ADT or SE24 source-based) |
-| ICF node | `/sap/bc/zmm_matmass/stawn` | SICF: under `default_host/sap/bc` create sub-node `zmm_matmass` (type "independent service"), then `stawn`; tab *Handler List*: `ZCL_MM_MATMASS_STAWN`; tab *Logon Data*: standard (launchpad session / SAML); activate both nodes |
+1. SEGW → *Create Project*: `ZMM_MATMASS_STAWN`, description *Mass upload: commodity code MARC-STAWN*,
+   type *Service with SAP Annotations*, package `ZMM_MATMASS`.
+2. *Data Model → Entity Types → Create*: entity type `Stawn`, tick *Create related Entity Set* (name `StawnSet`).
+3. Properties of `Stawn` (ABAP field names exactly as below, the method uses them):
 
-No OData, no Gateway registration, no CDS: the handler reads JSON and answers JSON.
+   | Property | Key | Edm type | Max length | ABAP field name |
+   |---|---|---|---|---|
+   | `Material` | x | Edm.String | 40 | `MATERIAL` |
+   | `Plant` | x | Edm.String | 4 | `PLANT` |
+   | `Code` | | Edm.String | 17 | `CODE` |
+   | `Previous` | | Edm.String | 17 | `PREVIOUS` |
+   | `Changed` | | Edm.Boolean | | `CHANGED` |
+   | `Type` | | Edm.String | 1 | `TYPE` |
+   | `Message` | | Edm.String | 220 | `MESSAGE` |
 
-## Interface
+4. Entity set `StawnSet`: *Creatable* on (the others may stay off).
+5. *Generate Runtime Objects* with the default names: `ZCL_ZMM_MATMASS_STAWN_MPC(_EXT)`,
+   `ZCL_ZMM_MATMASS_STAWN_DPC(_EXT)`, model `ZMM_MATMASS_STAWN_MDL`, service `ZMM_MATMASS_STAWN_SRV`.
+6. ADT: open `ZCL_ZMM_MATMASS_STAWN_DPC_EXT`, redefine method `STAWNSET_CREATE_ENTITY` and paste the body from
+   `zcl_zmm_matmass_stawn_dpc_ext.stawnset_create_entity.abap` (the `METHOD … ENDMETHOD.` block). Activate.
 
-CSRF protection (the node uses the launchpad session, so without it another web page opened in the same browser could
-post here with the user's rights):
+## 2. Register the service
 
-```
-GET  /sap/bc/zmm_matmass/stawn          header X-CSRF-Token: Fetch   -> 200, response header X-CSRF-Token: <token>
-POST /sap/bc/zmm_matmass/stawn          header X-CSRF-Token: <token>, Content-Type: application/json
-     without/expired token -> 403 + X-CSRF-Token: Required (the app fetches a new token and retries once)
-     other Content-Type     -> 415
-```
+`/IWFND/MAINT_SERVICE` → *Add Service*, system alias `LOCAL`, technical service name `ZMM_MATMASS_STAWN_SRV`,
+package `ZMM_MATMASS`. The service path becomes `/sap/opu/odata/sap/ZMM_MATMASS_STAWN_SRV/` (the default in the app,
+section Connection, field *Commodity code service*).
 
-The handler uses `IF_HTTP_SERVER~GET_XSRF_TOKEN` and `~VALIDATE_XSRF_TOKEN`; check their signature in SE24 on DS4 before
-activating (parameter names can differ per release).
+## 3. Authorization
 
+Role of the users: `S_SERVICE` for `ZMM_MATMASS_STAWN_SRV` (PFCG → menu → Authorization Default → TADIR service
+`R3TR IWSG ZMM_MATMASS_STAWN_SRV_0001`), plus `M_MATE_WRK` activity 02 for the plants and `M_MATE_MAT` activity 02 for
+the authorization groups of the materials. The method writes MARC directly: no change document, no MM02 checks —
+keep the role limited to the migration team.
 
-```
-POST /sap/bc/zmm_matmass/stawn?sap-client=410
-{ "items": [ { "material": "5000000", "plant": "AF00", "commodityCode": "84099900" } ] }
+## 4. Interface (what the app sends)
 
-200
-{ "items": [ { "material": "5000000", "plant": "AF00", "commodityCode": "84099900",
-               "previous": "741521 00", "changed": true, "type": "S", "message": "Material 5000000 changed" } ] }
-```
-
-- `commodityCode` `""` clears the code (the app sends this for a `#` cell).
-- One UPDATE and commit per item, under lock `EMMARCE` (material/plant); a rejected item (`type` `E`) does not stop
-  the others. After the commit the handler reads `MARC-STAWN` again and reports `changed` from the database.
-- Checks in the handler: `M_MATE_WRK` activity 02 for the plant of the item, `M_MATE_MAT` activity 02 if the material
-  has an authorization group, material and plant exist, code = digits and spaces, max. 17. The checks of MM02 and the
-  BAPI do not run, and no change document is written.
-- The app calls the service after the product's V4 change set.
-
-## Test from a terminal
+One `$batch` per package, one change set per material/plant:
 
 ```
-curl -u USER -c c.txt -H "X-CSRF-Token: Fetch" -D - "https://vhlruds4ci.sap.allseas.global:44300/sap/bc/zmm_matmass/stawn?sap-client=410"
-curl -u USER -b c.txt -H "X-CSRF-Token: <token from the first call>" -X POST "https://vhlruds4ci.sap.allseas.global:44300/sap/bc/zmm_matmass/stawn?sap-client=410" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"items\":[{\"material\":\"5000000\",\"plant\":\"AF00\",\"commodityCode\":\"84099900\"}]}"
+POST StawnSet   { "Material": "5000000", "Plant": "AF00", "Code": "84099900" }      ("" clears the code)
+201             { "d": { ..., "Previous": "741521 00", "Changed": true, "Type": "S", "Message": "Commodity code changed (MARC-STAWN)" } }
 ```
 
-Then `SE16N` on `MARC` (MATNR 5000000, WERKS AF00) shows the new value; MM03 does not show the field.
+A rejected item comes back with `Type` `E` and the reason in `Message`; the other items continue.
 
-## Template
+## 5. Test in the Gateway Client (/IWFND/GW_CLIENT, client 410)
 
-The column `STAWN` is an Allseas addition to the Plant Data sheet of the Migration Cockpit template (row 5 field
-name, row 6 type `ETE;80;0;C;80;0`, row 7 group *Allseas: customs*, row 8 description). `test/add_stawn_column.py`
-appends it to any template file; the example template of the app (`webapp/template_product.xml`) and the unit-test
-file already have it as column 147. The Migration Cockpit itself ignores the extra column.
+```
+POST /sap/opu/odata/sap/ZMM_MATMASS_STAWN_SRV/StawnSet
+Content-Type: application/json
+{ "Material": "5000000", "Plant": "AF00", "Code": "84099900" }
+```
+
+Expected 201 with `Changed: true`; then SE16N `MARC` (MATNR 5000000, WERKS AF00) shows `84099900`.
+
+## 6. Clean-up
+
+The earlier ICF handler class `ZCL_MM_MATMASS_STAWN` is not used any more: delete it in ADT (no ICF node was created).

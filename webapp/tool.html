@@ -126,7 +126,7 @@
     </div>
     <div>
       <label class="stack">V2 service (create with internal number)<input type="text" id="svcV2" value="/sap/opu/odata/sap/API_PRODUCT_SRV/"></label>
-      <label class="stack" style="margin-top:12px">Commodity code service (custom ABAP, column STAWN of Plant Data)<input type="text" id="svcStawn" value="/sap/bc/zmm_matmass/stawn"></label>
+      <label class="stack" style="margin-top:12px">Commodity code service (custom OData V2, column STAWN of Plant Data)<input type="text" id="svcStawn" value="/sap/opu/odata/sap/ZMM_MATMASS_STAWN_SRV/"></label>
       <details class="disclose" style="margin-top:12px"><summary>▸ Details</summary>
         <ul class="hints muted small">
           <li>The app runs inside the Fiori launchpad of the same SAP system; requests use your launchpad session. No password is entered or stored.</li>
@@ -936,7 +936,7 @@ async function testConnection() {
 // (DS4 8 Oct 2026: neither API_PRODUCT_2 nor API_PRODUCT_SRV has the commodity code MARC-STAWN; the plant entity
 // "International Trade" only has country/region of origin, CAS number, PRODCOM number and consumption tax code).
 // STAWN is an Allseas column appended to the Plant Data sheet (field name row 5, type row 6, description row 8).
-const CUSTOM_FIELDS = { S_MARC: { STAWN: 'custom service: MARC-STAWN (direct update)' } };
+const CUSTOM_FIELDS = { S_MARC: { STAWN: 'custom service: MARC-STAWN (ZMM_MATMASS_STAWN_SRV)' } };
 function apiOf(sheet, field) {
   const hits = TREE.filter(n => n.sheet === sheet && (n.fields[field] || (n.carry && n.carry[field]))).map(n => {
     const p = n.fields[field] || n.carry[field];
@@ -1374,40 +1374,62 @@ function stawnItems(h, product) {
   }
   return out;
 }
+// --- commodity code (MARC-STAWN) through the custom Gateway service ZMM_MATMASS_STAWN_SRV (SEGW, OData V2), see abap/README.md
+// One $batch per call, one change set per material/plant with "POST StawnSet { Material, Plant, Code }". The service
+// writes MARC-STAWN and answers 201 with the result in the same entity: Previous, Changed, Type ('S'|'E'), Message.
+// CSRF as for every Gateway service: token from a GET on the service root with "X-CSRF-Token: Fetch".
 let csrfStawn = null;
-async function fetchStawnToken(svc) {
-  const r = await fetch(withParams(svc), { credentials: 'include', headers: { 'X-CSRF-Token': 'Fetch', Accept: 'application/json' } });
+function stawnBase() { let p = $('svcStawn').value.trim(); if (!p.endsWith('/')) p += '/'; return p; }
+async function fetchStawnToken() {
+  const r = await fetch(withParams(stawnBase()), { credentials: 'include', headers: { 'X-CSRF-Token': 'Fetch', Accept: 'application/json' } });
   const t = await r.text();
   if (looksLikeLogonPage(r, t)) throw new Error('logon page: session expired');
   csrfStawn = r.headers.get('x-csrf-token');
-  if (!csrfStawn || csrfStawn.toLowerCase() === 'required') { csrfStawn = null; throw new Error(`no CSRF token from the service (HTTP ${r.status}${r.status === 404 ? ' — ICF node not created or not active (SICF)' : ''})`); }
+  if (!r.ok || !csrfStawn || csrfStawn.toLowerCase() === 'required') {
+    csrfStawn = null;
+    throw new Error(`service not reachable (HTTP ${r.status}${r.status === 404 || r.status === 403 ? ' — service not activated in /IWFND/MAINT_SERVICE, or no S_SERVICE authorization' : ''})`);
+  }
+}
+const v2Err = (body, status) => { const m = body && body.error && body.error.message; return `HTTP ${status}: ${(m && (m.value || m)) || ''}`; };
+async function stawnBatch(items) {   // -> [{ status, body }] in the order of items
+  const boundary = 'batch_' + Math.random().toString(36).slice(2);
+  let payload = '';
+  items.forEach((it, i) => {
+    const cs = 'changeset_' + Math.random().toString(36).slice(2);
+    payload += `--${boundary}\r\nContent-Type: multipart/mixed;boundary=${cs}\r\n\r\n--${cs}\r\n` +
+      httpPart({ method: 'POST', path: 'StawnSet', body: { Material: it.material, Plant: it.plant, Code: it.commodityCode } }, i + 1) + `--${cs}--\r\n`;
+  });
+  payload += `--${boundary}--\r\n`;
+  const send = () => fetch(withParams(stawnBase() + '$batch'), { method: 'POST', credentials: 'include', body: payload,
+    headers: { 'Content-Type': `multipart/mixed;boundary=${boundary}`, Accept: 'multipart/mixed', 'X-CSRF-Token': csrfStawn || '' } });
+  if (!csrfStawn) await fetchStawnToken();
+  let r = await send();
+  if (r.status === 403 && (r.headers.get('x-csrf-token') || '').toLowerCase() === 'required') { await fetchStawnToken(); r = await send(); }
+  const text = await r.text();
+  if (looksLikeLogonPage(r, text)) throw new Error('logon page: session expired');
+  if (!r.ok) throw new Error(`$batch → HTTP ${r.status}: ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200)}`);
+  const m = (r.headers.get('content-type') || '').match(/boundary=([^;]+)/i);
+  if (!m) throw new Error('$batch → response without multipart boundary');
+  return splitMultipart(text, m[1].replace(/"/g, '').trim()).map(part => {
+    const cm = part.substring(0, 300).match(/Content-Type:\s*multipart\/mixed;\s*boundary=([^\s;]+)/i);
+    const one = cm ? splitMultipart(part, cm[1].replace(/"/g, '')).map(parseHttp)[0] : parseHttp(part);
+    return one || { status: 0, body: null };
+  });
 }
 async function sendStawn(list) {   // list: [{ h, product }] -> Map product -> { steps, error, labels }
   const res = new Map(); const items = [];
   for (const x of list) { const its = stawnItems(x.h, x.product); if (its.length) { res.set(x.product, { steps: 0, error: '', labels: [] }); items.push(...its); } }
   if (!items.length) return res;
-  const svc = $('svcStawn').value.trim(); let j;
-  try {
-    // CSRF: the service only accepts a POST with a token fetched before (GET with "X-CSRF-Token: Fetch"); a token that
-    // expired with the session is answered with 403 and "X-CSRF-Token: Required", then fetched again once.
-    const post = () => fetch(withParams(svc), { method: 'POST', credentials: 'include', body: JSON.stringify({ items }),
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': csrfStawn || '' } });
-    if (!csrfStawn) await fetchStawnToken(svc);
-    let r = await post();
-    if (r.status === 403 && (r.headers.get('x-csrf-token') || '').toLowerCase() === 'required') { await fetchStawnToken(svc); r = await post(); }
-    const t = await r.text();
-    if (looksLikeLogonPage(r, t)) throw new Error('logon page: session expired');
-    try { j = JSON.parse(t); } catch (e) { throw new Error(`HTTP ${r.status}${r.status === 404 ? ' — service not found: ICF node not created or not active (SICF)' : ''}: ${t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200)}`); }
-    if (!r.ok) throw new Error(`HTTP ${r.status}: ${(j && j.message) || t.substring(0, 200)}`);
-  } catch (e) {
-    for (const v of res.values()) v.error = `commodity code service ${svc}: ${e.message}`;
-    return res;
-  }
-  for (const it of (j.items || [])) {
-    const v = res.get(String(it.material)); if (!v) continue;
-    if (it.type === 'E' || it.type === 'A') v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${it.message}`;
-    else if (it.changed) { v.steps++; v.labels.push(`${it.material} plant ${it.plant}: commodity code ${JSON.stringify(it.previous || '')} → ${JSON.stringify(it.commodityCode || '')}`); }
-  }
+  let answers;
+  try { answers = await stawnBatch(items); }
+  catch (e) { for (const v of res.values()) v.error = `commodity code service ${stawnBase()}: ${e.message}`; return res; }
+  items.forEach((it, i) => {
+    const v = res.get(it.material), a = answers[i] || { status: 0, body: null };
+    const d = a.body && a.body.d;
+    if (!(a.status >= 200 && a.status < 300) || !d) { v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${v2Err(a.body, a.status)}`; return; }
+    if (d.Type === 'E' || d.Type === 'A') v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${d.Message}`;
+    else if (d.Changed) { v.steps++; v.labels.push(`${it.material} plant ${it.plant}: commodity code ${JSON.stringify(d.Previous || '')} → ${JSON.stringify(d.Code || '')}`); }
+  });
   return res;
 }
 async function upsert(h, item, product, createdNow) {
