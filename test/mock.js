@@ -54,11 +54,11 @@ for (const n of TREE) {
 }
 T.ProdSalesDeliverySalesTax_Type.props.ProductSalesTaxCategory = 1; T.ProdSalesDeliverySalesTax_Type.props.ProductTaxClassification = 1;
 for (const [t, d] of Object.entries(T)) d.keys.forEach(k => d.props[k] = 1);
-Object.assign(T.Product_Type.props, { LastChangeDateTime: 1, CreationDate: 1, BaseUnit: 1, CreatedByUser: 1 });
+Object.assign(T.Product_Type.props, { LastChangeDateTime: 1, CreationDate: 1, BaseUnit: 1, CreatedByUser: 1, WeightUnit: 1, VolumeUnit: 1 });
 Object.assign(T.ProductUnitOfMeasure_Type.props, { AlternativeSAPUnit: 1 });
 Object.assign(T.ProductValuation_Type.props, { BaseISOUnit: 1 });   // DS4: unit reference of ProductPriceUnitQuantity
 Object.assign(T.ProductUnitOfMeasureEAN_Type.props, { AlternativeISOUnit: 1 });
-const COMPUTED = { Product_Type: ['LastChangeDateTime', 'CreationDate', 'BaseUnit', 'CreatedByUser'], ProductUnitOfMeasure_Type: ['AlternativeUnit', 'AlternativeSAPUnit'] };
+const COMPUTED = { Product_Type: ['LastChangeDateTime', 'CreationDate', 'BaseUnit', 'CreatedByUser', 'WeightUnit', 'VolumeUnit'], ProductUnitOfMeasure_Type: ['AlternativeUnit', 'AlternativeSAPUnit'] };
 // Key properties that come from the parent. DS4 (25 Sep 2026): not filled by SAP in a deep insert or POST via
 // navigation — they must be in the body ('Property PLANT is a key and cannot be initial'), although $metadata marks them Computed.
 function computedKeys(t) {
@@ -82,8 +82,10 @@ function edmType(p) {
   return 'Edm.String';
 }
 const MAXLEN = { Product: 18, ProductDescription: 40, Language: 2, Plant: 4, StorageLocation: 4, ValuationArea: 4, ProductType: 4, ProductGroup: 9 };
-// quantity/amount -> unit/currency property of the same entity (DS4 $metadata: SAP__measures.Unit / ISOCurrency)
-const MEASURE_REF = { GrossWeight: 'WeightISOUnit', NetWeight: 'WeightISOUnit', ProductVolume: 'VolumeISOUnit', ProductPriceUnitQuantity: 'BaseISOUnit',
+// quantity/amount -> unit/currency property of the same entity, as in the DS4 $metadata (8 Oct 2026): SAP__measures.Unit
+// points to the SAP unit (WeightUnit "KG", computed), while a write needs the ISO twin (WeightISOUnit "KGM"):
+// a PATCH with WeightUnit is rejected with "ISO unit must be provided".
+const MEASURE_REF = { GrossWeight: 'WeightUnit', NetWeight: 'WeightUnit', ProductVolume: 'VolumeUnit', ProductPriceUnitQuantity: 'BaseISOUnit',
   MovingAveragePrice: 'Currency', StandardPrice: 'Currency' };
 function metadata() {
   let x = '<?xml version="1.0" encoding="utf-8"?><edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0"><edmx:DataServices>' +
@@ -146,6 +148,7 @@ function makeNode(t, obj, parentKeys, prod, implicit) {
     if (String(data[k]) !== String(parentKeys[k])) throw new ODataError(400, `Key ${k} ${data[k]} does not match the parent (${parentKeys[k]})`);
   }
   if (t === 'ProductUnitOfMeasure_Type') { data.AlternativeUnit = UNIT_SAP[data.AlternativeISOUnit]; data.AlternativeSAPUnit = data.AlternativeUnit; }
+  if (t === 'Product_Type' && data.WeightISOUnit) data.WeightUnit = UNIT_SAP[data.WeightISOUnit];   // SAP unit derived from the ISO unit, as in SAP
   if (t === 'ProductPlant_Type' && !PLANTS.has(data.Plant)) throw new ODataError(400, `Plant ${data.Plant} does not exist`);
   if (t === 'ProductValuation_Type' && data.ValuationType === undefined) data.ValuationType = '';
   if (t === 'ProductValuation_Type' && AREA_CUR[data.ValuationArea] && data.Currency && data.Currency !== AREA_CUR[data.ValuationArea])
@@ -278,7 +281,9 @@ function handle(method, p, body, headers) {   // returns { status, body }
     for (const k of T[target.type].keys) if (k in body && String(body[k]) !== String(target.data[k])) throw new ODataError(400, `Key ${k} cannot be changed`);
     if (target.type === 'ProductValuation_Type' && body.Currency && target.data.Currency && body.Currency !== target.data.Currency)
       throw new ODataError(400, `Currency ${body.Currency} provided is incorrect for Product ${target.data.Product} Valuation ${target.data.ValuationArea}`);
-    Object.assign(target.data, body); prod.data.LastChangeDateTime = stamp(); return { status: 200, body: serialize(target, prod) };
+    Object.assign(target.data, body); prod.data.LastChangeDateTime = stamp();
+    if (target.type === 'Product_Type' && body.WeightISOUnit) target.data.WeightUnit = UNIT_SAP[body.WeightISOUnit];
+    return { status: 200, body: serialize(target, prod) };
   }
   throw new ODataError(405, 'Method not allowed');
 }

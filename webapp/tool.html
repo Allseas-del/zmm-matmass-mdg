@@ -635,6 +635,11 @@ function parseSchema(md) {
   }
   // fallback for quantities without a Measures annotation: the known unit property, when the entity has it
   for (const e of Object.values(out)) for (const [name, p] of Object.entries(e.props)) if (!p.ref && UNIT_REF[name] && e.props[UNIT_REF[name]]) p.ref = UNIT_REF[name];
+  // SAP annotates the quantity with the SAP unit (GrossWeight -> WeightUnit "KG"), but the API takes the ISO twin on
+  // write (DS4 8 Oct 2026: PATCH with WeightUnit "KG" -> "ISO unit must be provided"). Use <name>ISOUnit when it exists.
+  for (const e of Object.values(out)) for (const p of Object.values(e.props)) {
+    if (p.ref && /Unit$/.test(p.ref) && !/ISOUnit$/.test(p.ref)) { const iso = p.ref.replace(/Unit$/, 'ISOUnit'); if (e.props[iso]) p.ref = iso; }
+  }
   return out;
 }
 // Entity type of each tree node, derived from the navigation properties in $metadata
