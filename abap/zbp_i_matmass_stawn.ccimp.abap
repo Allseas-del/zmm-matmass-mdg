@@ -73,7 +73,7 @@ CLASS lhc_stawn IMPLEMENTATION.
           system_failure = 2
           OTHERS         = 3.
       IF sy-subrc <> 0.
-        APPEND VALUE #( %tky = ls_key-%tky ) TO failed-stawn.
+        APPEND VALUE #( Material = ls_key-Material Plant = ls_key-Plant ) TO failed-stawn.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
