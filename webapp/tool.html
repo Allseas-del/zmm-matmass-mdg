@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Material Master Mass Upload</title>
+<title>Material Master Mass Upload (MDG)</title>
 <style>
   /* Layout and colours after the Lovable redesign (Oct 2026), as plain CSS: no external fonts or libraries */
   :root { --bg:#f5f7fa; --card:#fff; --ink:#2c3e4f; --muted:#f1f5f9; --muted-ink:#64748b; --line:#e2e8f0; --acc:#2f6bc4; --acc-ink:#f8fafc;
@@ -109,7 +109,7 @@
 <body>
 <main>
 <header class="top">
-  <h1>Material Master Mass Upload</h1>
+  <h1>Material Master Mass Upload <span style="font-weight:400;opacity:.7">· MDG variant</span></h1>
   <p>Migration Cockpit template “Product” → OData V4 Product API (API_PRODUCT_2)</p>
 </header>
 <div class="card">
@@ -1234,7 +1234,7 @@ function openIdb() {
   if (idb) return idb;
   idb = new Promise(res => {
     try {
-      const rq = indexedDB.open('zmmmatmass', 1);
+      const rq = indexedDB.open('zmmmatmassmdg', 1);
       rq.onupgradeneeded = () => rq.result.createObjectStore('res', { keyPath: 'key' });
       rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null);
     } catch (e) { res(null); }
@@ -1598,7 +1598,7 @@ const runStamp = () => new Date().toISOString().replace(/[:T]/g, '-').substring(
 $('btnResults').onclick = () => download(fileName.replace(/\.xml$/i, '') + '_results.csv', resultsCsv(), 'text/csv');
 // The log and the results of the last run are kept in the browser (localStorage), written during the run, so they can
 // be downloaded after a reload even if the page hung or was closed.
-const LAST_RUN_KEY = 'zmmmatmass.lastRun';
+const LAST_RUN_KEY = 'zmmmatmassmdg.lastRun';
 function saveLastRun(state) {
   try {
     let log = fullLog.join('\r\n'); if (log.length > 3000000) log = '… (start of log cut off)\r\n' + log.slice(-3000000);
@@ -2033,12 +2033,12 @@ $('extNum').onchange = () => { if (sheets.S_MARA) sheets.S_MARA.rows.forEach(r =
 // In the launchpad the session exists already: test right away
 if (location.protocol !== 'file:') testConnection();
 
-try { $('unitMap').value = localStorage.getItem('zmmmatmass.unitMap') || ''; } catch (e) { /* storage not available */ }
+try { $('unitMap').value = localStorage.getItem('zmmmatmassmdg.unitMap') || ''; } catch (e) { /* storage not available */ }
 userUnitMap = parseUnitMap($('unitMap').value);
 $('unitBuiltin').textContent = Object.entries(UNIT_TO_ISO).map(([a, b]) => `${a}=${b}`).join('  ');
 $('btnUnitSave').onclick = () => {
   userUnitMap = parseUnitMap($('unitMap').value); unitLogged.clear();
-  try { localStorage.setItem('zmmmatmass.unitMap', $('unitMap').value); } catch (e) { /* storage not available */ }
+  try { localStorage.setItem('zmmmatmassmdg.unitMap', $('unitMap').value); } catch (e) { /* storage not available */ }
   const bad = Object.entries(userUnitMap).filter(([, iso]) => !ISO_CODES.has(iso)).map(([a, b]) => `${a}=${b}`);
   $('unitState').textContent = `${Object.keys(userUnitMap).length} line(s) applied` + (bad.length ? ` — not an ISO code in T006: ${bad.join(', ')}` : '');
 };

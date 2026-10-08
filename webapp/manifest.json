@@ -1,7 +1,7 @@
 {
   "_version": "1.65.0",
   "sap.app": {
-    "id": "com.allseas.zmmmatmass",
+    "id": "com.allseas.zmmmatmassmdg",
     "type": "application",
     "i18n": "i18n/i18n.properties",
     "applicationVersion": { "version": "0.8.0" },
@@ -11,7 +11,7 @@
       "inbounds": {
         "upload": {
           "semanticObject": "Material",
-          "action": "massUpload",
+          "action": "massUploadMdg",
           "title": "{{appTitle}}",
           "signature": { "parameters": {}, "additionalParameters": "allowed" }
         }
@@ -25,6 +25,6 @@
   },
   "sap.ui5": {
     "dependencies": { "minUI5Version": "1.120.0", "libs": { "sap.ui.core": {} } },
-    "models": { "i18n": { "type": "sap.ui.model.resource.ResourceModel", "settings": { "bundleName": "com.allseas.zmmmatmass.i18n.i18n" } } }
+    "models": { "i18n": { "type": "sap.ui.model.resource.ResourceModel", "settings": { "bundleName": "com.allseas.zmmmatmassmdg.i18n.i18n" } } }
   }
 }

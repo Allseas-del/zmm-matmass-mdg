@@ -187,7 +187,7 @@
  {
   "name": "24a after reload: log and results of the last run available",
   "pass": true,
-  "info": "Last run: 08/10/2026, 11:53:20 · test_products.xml · finished: 0 ok, 1 with errors of 1"
+  "info": "Last run: 10/8/2026, 1:54:27 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "24 resume: results loaded, done products deselected",
@@ -207,7 +207,7 @@
  {
   "name": "25a internal numbering: product created through V2 (Product \"\", SAP unit), views and other basic data through V4; number in column SAP product",
   "pass": true,
-  "info": "v2post=2 targets=4001058,4001067, plants=1"
+  "info": "v2post=2 targets=4001022,4001031, plants=1"
  },
  {
   "name": "25b example template: download, load (2 products, 2 MARC, 2 MARD, 2 MBEW), no validation problems, V2 units M and AU",
@@ -222,7 +222,7 @@
  {
   "name": "25d end of run: log and results downloaded automatically, last run kept in the browser (after reload too)",
   "pass": true,
-  "info": "template_download_log_2026-10-08-09-53-26.txt, template_download_results_2026-10-08-09-53-26.csv | finished: 0 ok, 1 with errors of 1"
+  "info": "roundtrip_results_2026-10-08-11-54-29.csv, template_download_log_2026-10-08-11-54-29.txt, roundtrip_results_2026-10-08-11-54-29.csv, template_download_results_2026-10-08-11-54-29.csv | finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "27 read from SAP: criteria (starts with ZTEST, exclude ZTEST-003) → 2 products; selected fields of 3 sheets in the Product template (description EN, base unit), one $batch read, $select",
@@ -232,12 +232,12 @@
  {
   "name": "27a columns: not selected and empty hidden (BISMT), selected and keys visible (GROES, PRODUCT, BRGEW), grid shows only visible columns; mode set to Change",
   "pass": true,
-  "info": "hidden=true,false,false,false,true mode=change gridColumns=8 | 2 product(s) read · 0 error(s) · 3 sheet(s) with data · 295 column(s) hidden · 0.2 s"
+  "info": "hidden=true,false,false,false,true mode=change gridColumns=8 | 2 product(s) read · 0 error(s) · 3 sheet(s) with data · 295 column(s) hidden · 0.1 s"
  },
  {
   "name": "27b download: Product template with the SAP rows and hidden columns (ss:Hidden), loads again (hidden columns kept), Change on the unchanged file gives \"no differences\"",
   "pass": true,
-  "info": "Product_from_SAP_session_2026-10-08-09-53.xml rows=2 hiddenKept=true"
+  "info": "Product_from_SAP_session_2026-10-08-11-54.xml rows=2 hiddenKept=true"
  },
  {
   "name": "27c any template field as criterion: Plant NL01 and MRP type VB on the same plant row (ProductPlantSupplyPlanning filtered on Plant too), material number \"ztest\" upper-cased; not filterable field (BISMT) not offered; operators by type",

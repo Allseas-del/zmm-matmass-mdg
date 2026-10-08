@@ -1,4 +1,4 @@
-"! Custom HTTP service for the mass upload app (BSP ZMMMATMASS): writes the commodity code MARC-STAWN per
+"! Custom HTTP service for the mass upload app (BSP ZMM_MATMASS_MDG): writes the commodity code MARC-STAWN per
 "! material and plant. The released Product APIs (API_PRODUCT_2 V4, API_PRODUCT_SRV V2) do not carry this field
 "! (checked on DS4 $metadata, 8 Oct 2026), so the app sends the STAWN column of the Plant Data sheet here.
 "!

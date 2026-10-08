@@ -14,7 +14,7 @@ const args = process.argv.slice(2); const file = args.find(a => !a.startsWith('-
 const run = args.includes('--run'); const client = args.includes('--client') ? args[args.indexOf('--client') + 1] : '410';
 if (!file) { console.error('usage: node ds4_run.js "<file.xml>" [--run] [--client 410]'); process.exit(2); }
 const HOST = 'https://vhlruds4ci.sap.allseas.global:44300';
-const URL = `${HOST}/sap/bc/ui5_ui5/sap/zmmmatmass/tool.html?sap-client=${client}`;
+const URL = `${HOST}/sap/bc/ui5_ui5/sap/zmm_matmass_mdg/tool.html?sap-client=${client}`;
 
 (async () => {
   const browser = await chromium.launch();

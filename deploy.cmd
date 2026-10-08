@@ -1,5 +1,5 @@
 @echo off
-rem Deploys the built app (dist) to DS4/400 as BSP ZMMMATMASS, transport DS4K915674.
+rem Deploys the built app (dist) to DS4/400 as BSP ZMM_MATMASS_MDG, transport DS4K915674.
 rem Logon from .env (FIORI_TOOLS_USER / FIORI_TOOLS_PASSWORD). Uses the portable Node when none is on the PATH.
 rem Double-click, or run in a terminal: deploy.cmd
 cd /d "%~dp0"

@@ -1,5 +1,5 @@
 {
-  "name": "zmm-matmass",
+  "name": "zmm-matmass-mdg",
   "version": "0.0.1",
   "description": "Material master mass upload from the LTMC template via the OData V4 Product API",
   "main": "webapp/index.html",

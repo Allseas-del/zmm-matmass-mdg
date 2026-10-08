@@ -3,7 +3,7 @@
 # Needs a developer user in client 400 (8 Oct 2026: user 10037 exists only in 410 and gets HTTP 403 on deploy there).
 specVersion: "4.0"
 metadata:
-  name: com.allseas.zmmmatmass
+  name: com.allseas.zmmmatmassmdg
 type: application
 builder:
   resources:
@@ -18,8 +18,8 @@ builder:
           url: https://vhlruds4ci.sap.allseas.global:44300
           client: '400'
         app:
-          name: ZMMMATMASS
-          description: Material master mass upload
+          name: ZMM_MATMASS_MDG
+          description: Material master mass upload (MDG variant)
           package: ZMM_MATMASS
           transport: DS4K915674
         exclude:

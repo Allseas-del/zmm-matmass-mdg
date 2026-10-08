@@ -226,7 +226,7 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   const dls = []; page.on('download', d => dls.push(d.suggestedFilename()));
   await page.check('input[name=mode][value=change]'); await page.evaluate(() => sheets.S_MARA.rows.forEach((r, i) => r.include = i === 0));
   await page.click('#btnRun'); await waitIdle(); await page.waitForTimeout(1500);
-  const lr = await page.evaluate(() => JSON.parse(localStorage.getItem('zmmmatmass.lastRun') || 'null'));
+  const lr = await page.evaluate(() => JSON.parse(localStorage.getItem('zmmmatmassmdg.lastRun') || 'null'));
   ok('25d end of run: log and results downloaded automatically, last run kept in the browser (after reload too)',
     dls.some(n => /_log_.*\.txt$/.test(n)) && dls.some(n => /_results_.*\.csv$/.test(n)) && lr && /finished: /.test(lr.state) && lr.log.length > 100 && /src;product;status/.test(lr.results), dls.join(', ') + ' | ' + (lr && lr.state));
   await page.uncheck('#autoDl');
