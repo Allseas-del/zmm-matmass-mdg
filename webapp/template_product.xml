@@ -10684,6 +10684,7 @@ migration cockpit.
 <Column ss:StyleID="FIELD" ss:Width="120"/>
 <Column ss:StyleID="FIELD" ss:Width="120"/>
 <Column ss:StyleID="FIELD" ss:Width="120"/>
+   <Column ss:Index="147" ss:StyleID="FIELD" ss:Width="120"/>
       <Row ss:AutoFitHeight="0" ss:Height="30" ss:StyleID="TITLE">
         <Cell ss:MergeAcross="14">
           <Data ss:Type="String">Source Data for Migration Object:  Product</Data>
@@ -10853,7 +10854,7 @@ migration cockpit.
 <Cell ss:Index="144"><Data ss:Type="String">PSTATE</Data></Cell>
 <Cell ss:Index="145"><Data ss:Type="String">PSTATQ</Data></Cell>
 <Cell ss:Index="146"><Data ss:Type="String">PSTATV</Data></Cell>
-      </Row>
+      <Cell ss:Index="147"><Data ss:Type="String">STAWN</Data></Cell></Row>
       <Row ss:AutoFitHeight="0" ss:Hidden="1">
 <Cell ss:Index="001"><Data ss:Type="String">ETE;80;0;C;80;0</Data></Cell>
 <Cell ss:Index="002"><Data ss:Type="String">ETE;80;0;C;80;0</Data></Cell>
@@ -11001,7 +11002,7 @@ migration cockpit.
 <Cell ss:Index="144"><Data ss:Type="String">ETE;1;0;C;1;0</Data></Cell>
 <Cell ss:Index="145"><Data ss:Type="String">ETE;1;0;C;1;0</Data></Cell>
 <Cell ss:Index="146"><Data ss:Type="String">ETE;1;0;C;1;0</Data></Cell>
-      </Row>
+      <Cell ss:Index="147"><Data ss:Type="String">ETE;80;0;C;80;0</Data></Cell></Row>
       <Row ss:AutoFitHeight="0">
 <Cell ss:MergeAcross="001" ss:StyleID="C_HEADER1"><Data ss:Type="String">Key</Data></Cell>
 <Cell ss:MergeAcross="002" ss:StyleID="C_HEADER1"><Data ss:Type="String">MRP Data</Data></Cell>
@@ -11028,7 +11029,7 @@ migration cockpit.
 <Cell ss:MergeAcross="002" ss:StyleID="C_HEADER1"><Data ss:Type="String">Shipping Data (Times in Days)</Data></Cell>
 <Cell ss:MergeAcross="005" ss:StyleID="C_HEADER1"><Data ss:Type="String">Distribution Center - Stores Data (Retail)</Data></Cell>
 <Cell ss:MergeAcross="004" ss:StyleID="C_HEADER1"><Data ss:Type="String">Select Views/Maintenance Status</Data></Cell>
-      </Row>
+      <Cell ss:Index="147" ss:StyleID="C_HEADER1"><Data ss:Type="String">Allseas: customs</Data></Cell></Row>
       <Row ss:AutoFitHeight="0">
 <Cell ss:StyleID="C_HEADER2" ss:Index="001"><Data ss:Type="String">Product Number*&#10;&#10;A key that uniquely identifies the product.&#10;&#10;Type: Text&#10;Length: 80</Data></Cell>
 <Cell ss:StyleID="C_HEADER2" ss:Index="002"><Data ss:Type="String">Plant*&#10;&#10;Key uniquely identifying a plant.&#10;In Logistics a plant is an organizational unit for dividing an enterprise according to production, procurement, maintenance, and products planning.&#10;&#10;Type: Text&#10;Length: 80</Data></Cell>
@@ -11176,7 +11177,9 @@ migration cockpit.
 <Cell ss:StyleID="C_HEADER2" ss:Index="144"><Data ss:Type="String">Indicator: Purchasing&#10;&#10;You can use this indicator to set the purchasing view on plant level active. For further information please refer to the migration object documentation.&#10;This is an indicator field. If the criterion is met, enter X. If not, leave the field empty.&#10;&#10;Type: Text&#10;Length: 1</Data></Cell>
 <Cell ss:StyleID="C_HEADER2" ss:Index="145"><Data ss:Type="String">Indicator: Quality&#10;&#10;You can use this indicator to set the quality view on plant level active. For further information please refer to the migration object documentation.&#10;This is an indicator field. If the criterion is met, enter X. If not, leave the field empty.&#10;&#10;Type: Text&#10;Length: 1</Data></Cell>
 <Cell ss:StyleID="C_HEADER2" ss:Index="146"><Data ss:Type="String">Indicator: Sales&#10;&#10;You can use this indicator to set the sales view on plant level active. For further information please refer to the migration object documentation.&#10;This is an indicator field. If the criterion is met, enter X. If not, leave the field empty.&#10;&#10;Type: Text&#10;Length: 1</Data></Cell>
-      </Row>
+      <Cell ss:Index="147" ss:StyleID="C_HEADER2"><Data ss:Type="String">Commodity Code (MARC-STAWN)
+
+Allseas extension: the mass upload app writes this column through the custom service ZMM_MATMASS_STAWN (BAPI_MATERIAL_SAVEDATA, plant data COMM_CODE), not through the Product API. Digits and spaces, max 17 characters; # clears the code.</Data></Cell></Row>
     <Row><Cell ss:Index="1"><Data ss:Type="String">HAWA-001</Data></Cell><Cell ss:Index="2"><Data ss:Type="String">NL10</Data></Cell><Cell ss:Index="3"><Data ss:Type="String">ND</Data></Cell><Cell ss:Index="4"><Data ss:Type="String">002</Data></Cell><Cell ss:Index="5"><Data ss:Type="String">ST</Data></Cell><Cell ss:Index="9"><Data ss:Type="String">G100</Data></Cell><Cell ss:Index="15"><Data ss:Type="String">0002</Data></Cell><Cell ss:Index="26"><Data ss:Type="String">NL</Data></Cell><Cell ss:Index="30"><Data ss:Type="String">300</Data></Cell><Cell ss:Index="33"><Data ss:Type="String">X</Data></Cell><Cell ss:Index="48"><Data ss:Type="String">EX</Data></Cell><Cell ss:Index="78"><Data ss:Type="String">F</Data></Cell><Cell ss:Index="107"><Data ss:Type="String">M</Data></Cell></Row>
 <Row><Cell ss:Index="1"><Data ss:Type="String">SERV-001</Data></Cell><Cell ss:Index="2"><Data ss:Type="String">NL10</Data></Cell><Cell ss:Index="9"><Data ss:Type="String">G100</Data></Cell><Cell ss:Index="30"><Data ss:Type="String">300</Data></Cell><Cell ss:Index="33"><Data ss:Type="String">X</Data></Cell><Cell ss:Index="107"><Data ss:Type="String">M</Data></Cell></Row>
 </Table>

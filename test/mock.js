@@ -323,6 +323,27 @@ const server = http.createServer((req, res) => {
     if (u.pathname === '/__stats') return send(200, JSON.stringify({ ...stats, products: [...store.keys()] }));
     if (u.pathname === '/__product') return send(200, JSON.stringify(store.has(u.searchParams.get('id')) ? serialize(store.get(u.searchParams.get('id')), store.get(u.searchParams.get('id'))) : null));
     if (u.pathname === '/__reset') { store = new Map(); Object.keys(stats).forEach(k => stats[k] = 0); return send(200, '{}'); }
+    // Custom ABAP service for the commodity code (MARC-STAWN), see docs/abap/README.md: the Product API has no such field.
+    // Stored on the plant node as ZZ_STAWN (visible in /__product); moves the product's change timestamp like the BAPI does.
+    if (u.pathname === '/sap/bc/zmm_matmass/stawn') {
+      if (req.method !== 'POST') return send(405, '{"message":"POST only"}');
+      stats.stawnPosts = (stats.stawnPosts || 0) + 1;
+      let b; try { b = JSON.parse(data || '{}'); } catch (e) { return send(400, '{"message":"invalid JSON"}'); }
+      const items = [];
+      for (const it of (b.items || [])) {
+        stats.stawnItems = (stats.stawnItems || 0) + 1;
+        const prod = store.get(String(it.material));
+        if (!prod) { items.push({ ...it, type: 'E', message: `Material ${it.material} does not exist` }); continue; }
+        const plant = (prod.navs._ProductPlant || []).find(p => p.data.Plant === it.plant);
+        if (!plant) { items.push({ ...it, type: 'E', message: `Material ${it.material} is not maintained in plant ${it.plant}` }); continue; }
+        const code = (it.commodityCode || '').trim();
+        if (!/^[0-9 ]{0,17}$/.test(code)) { items.push({ ...it, type: 'E', message: `Commodity code ${code} is not valid` }); continue; }
+        const previous = plant.data.ZZ_STAWN || ''; const changed = previous !== code;
+        if (changed) { plant.data.ZZ_STAWN = code; prod.data.LastChangeDateTime = stamp(); }
+        items.push({ ...it, commodityCode: code, previous, changed, type: 'S', message: changed ? `Material ${it.material} changed` : 'unchanged' });
+      }
+      return send(200, JSON.stringify({ items }));
+    }
     // V2 API_PRODUCT_SRV: only POST A_Product with internal number assignment (DS4, 28 Sep 2026: Product "" -> 201, number assigned)
     if (u.pathname.startsWith(SVC_V2)) {
       const rel2 = u.pathname.substring(SVC_V2.length);

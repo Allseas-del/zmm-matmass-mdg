@@ -126,6 +126,7 @@
     </div>
     <div>
       <label class="stack">V2 service (create with internal number)<input type="text" id="svcV2" value="/sap/opu/odata/sap/API_PRODUCT_SRV/"></label>
+      <label class="stack" style="margin-top:12px">Commodity code service (custom ABAP, column STAWN of Plant Data)<input type="text" id="svcStawn" value="/sap/bc/zmm_matmass/stawn"></label>
       <details class="disclose" style="margin-top:12px"><summary>▸ Details</summary>
         <ul class="hints muted small">
           <li>The app runs inside the Fiori launchpad of the same SAP system; requests use your launchpad session. No password is entered or stored.</li>
@@ -931,11 +932,17 @@ async function testConnection() {
 /* ------------------------------------------------------------------ */
 /* Grid                                                               */
 /* ------------------------------------------------------------------ */
+// Template columns that the released Product API does not carry and that go through a custom ABAP service instead
+// (DS4 8 Oct 2026: neither API_PRODUCT_2 nor API_PRODUCT_SRV has the commodity code MARC-STAWN; the plant entity
+// "International Trade" only has country/region of origin, CAS number, PRODCOM number and consumption tax code).
+// STAWN is an Allseas column appended to the Plant Data sheet (field name row 5, type row 6, description row 8).
+const CUSTOM_FIELDS = { S_MARC: { STAWN: 'custom service: MARC-STAWN (BAPI_MATERIAL_SAVEDATA)' } };
 function apiOf(sheet, field) {
   const hits = TREE.filter(n => n.sheet === sheet && (n.fields[field] || (n.carry && n.carry[field]))).map(n => {
     const p = n.fields[field] || n.carry[field];
     return p.startsWith('(') ? `${n.nav || n.id} ${p}` : `${n.id === 'Product' ? '' : (n.nav || '') + '.'}${p}`;
   });
+  if (!hits.length && CUSTOM_FIELDS[sheet] && CUSTOM_FIELDS[sheet][field]) return CUSTOM_FIELDS[sheet][field];
   return [...new Set(hits)].join(', ');
 }
 function renderTabs() {
@@ -1290,6 +1297,14 @@ function validateAll(hs) {
     total += issues.length;
   }
   for (const [k, n] of missingProps) log(`Template column filled in ${n} row(s), but ${k} is not in this service — not sent.`, 'warn');
+  // commodity code column (custom service): digits and spaces, max 17 characters (MARC-STAWN), or "#" to clear
+  let nStawn = 0;
+  for (const h of hs) for (const r of (index.S_MARC && index.S_MARC.get(prodOf(h))) || []) {
+    const v = r.include && r.cells.STAWN ? r.cells.STAWN.value.trim() : ''; if (!v) continue;
+    nStawn++;
+    if (v !== CLEAR_MARK && !/^[0-9 ]{1,17}$/.test(v)) { if (total < 200) log(`  ${prodOf(h)} plant ${val(r, 'WERKS')}: commodity code "${v}" must be digits (max 17, spaces allowed)`, 'err'); total++; }
+  }
+  if (nStawn) log(`Commodity code (STAWN) filled on ${nStawn} plant row(s): sent through the custom service ${$('svcStawn').value.trim()} after the product's change set, not through the Product API.`);
   log(total ? `Validation against $metadata: ${total} problem(s).` : 'Validation against $metadata: no problems.', total ? 'warn' : 'ok');
   return total;
 }
@@ -1329,10 +1344,16 @@ function changeOps(h, item, cur, product) {
   return ops;
 }
 const changeSet = ops => ({ changeset: ops.map(o => ({ method: o.method, path: o.path, body: o.body, headers: o.headers })) });
-function changeResult(h, product, ops, a, createdNow) {
-  if (a.status >= 200 && a.status < 300) {
-    ops.forEach(o => log(`  ${o.label}`));
-    finish(h, 'done', product, '', ops.length); log(`${prodOf(h)} → ${product}: ${ops.length} change(s)`, 'ok');
+// Outcome of one product: the V4 change set (a = null when there were no differences) plus the custom-service part
+// (extra = { steps, error, labels } from sendStawn, undefined when the file has no STAWN for this product).
+function changeResult(h, product, ops, a, createdNow, extra) {
+  const ex = extra || { steps: 0, error: '', labels: [] };
+  if (!a || (a.status >= 200 && a.status < 300)) {
+    ops.forEach(o => log(`  ${o.label}`)); ex.labels.forEach(l => log(`  ${l}`));
+    const n = ops.length + ex.steps;
+    if (ex.error) { finish(h, n || createdNow ? 'partial' : 'failed', product, ex.error); log(`${prodOf(h)} → ${product}: ${n} change(s) saved, commodity code rejected — ${ex.error}`, 'err'); }
+    else if (!n) noDifferences(h, product);
+    else { finish(h, 'done', product, '', n); log(`${prodOf(h)} → ${product}: ${n} change(s)`, 'ok'); }
   } else {
     const msg = errText(a.body, a.status);
     finish(h, createdNow ? 'partial' : 'failed', product, msg); log(`${prodOf(h)} → ${product}: change set rejected, nothing of it saved — ${msg}`, 'err');
@@ -1340,15 +1361,50 @@ function changeResult(h, product, ops, a, createdNow) {
   }
 }
 function noDifferences(h, product) { finish(h, 'done', product, 'no differences', 0); log(`${prodOf(h)} → ${product}: no differences`, 'ok'); }
+// --- commodity code (MARC-STAWN) through the custom ABAP service, see CUSTOM_FIELDS and docs/abap/README.md
+// Request  POST { items: [{ material, plant, commodityCode }] }  ("#" in the file clears the code: commodityCode "")
+// Response { items: [{ material, plant, commodityCode, previous, changed, type: 'S'|'E', message }] }
+// Sent after the product's V4 change set: the BAPI moves the product's change timestamp, which is the V4 ETag.
+function stawnItems(h, product) {
+  const out = [];
+  for (const r of (index.S_MARC && index.S_MARC.get(prodOf(h))) || []) {
+    if (!r.include || !r.cells.STAWN) continue;
+    const v = r.cells.STAWN.value.trim(); if (!v) continue;
+    out.push({ material: product, plant: val(r, 'WERKS'), commodityCode: v === CLEAR_MARK ? '' : v });
+  }
+  return out;
+}
+async function sendStawn(list) {   // list: [{ h, product }] -> Map product -> { steps, error, labels }
+  const res = new Map(); const items = [];
+  for (const x of list) { const its = stawnItems(x.h, x.product); if (its.length) { res.set(x.product, { steps: 0, error: '', labels: [] }); items.push(...its); } }
+  if (!items.length) return res;
+  const svc = $('svcStawn').value.trim(); let j;
+  try {
+    const r = await fetch(withParams(svc), { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ items }) });
+    const t = await r.text();
+    if (looksLikeLogonPage(r, t)) throw new Error('logon page: session expired');
+    try { j = JSON.parse(t); } catch (e) { throw new Error(`HTTP ${r.status}${r.status === 404 ? ' — service not found: ICF node not created or not active (SICF)' : ''}: ${t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200)}`); }
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${(j && j.message) || t.substring(0, 200)}`);
+  } catch (e) {
+    for (const v of res.values()) v.error = `commodity code service ${svc}: ${e.message}`;
+    return res;
+  }
+  for (const it of (j.items || [])) {
+    const v = res.get(String(it.material)); if (!v) continue;
+    if (it.type === 'E' || it.type === 'A') v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${it.message}`;
+    else if (it.changed) { v.steps++; v.labels.push(`${it.material} plant ${it.plant}: commodity code ${JSON.stringify(it.previous || '')} → ${JSON.stringify(it.commodityCode || '')}`); }
+  }
+  return res;
+}
 async function upsert(h, item, product, createdNow) {
   log(`  ${prodOf(h)} → ${product}: reading current data from SAP (one $batch, one GET per entity set)…`);
   const t = Date.now(); const cur = await readCurrent(item, product);
   log(`  ${prodOf(h)} → ${product}: read in ${((Date.now() - t) / 1000).toFixed(1)} s`);
   const ops = changeOps(h, item, cur, product);
-  if (!ops.length) return noDifferences(h, product);
-  log(`  ${prodOf(h)} → ${product}: sending change set with ${ops.length} operation(s)…`);
-  const [a] = await batchAll([changeSet(ops)]);
-  changeResult(h, product, ops, a, createdNow);
+  let a = null;
+  if (ops.length) { log(`  ${prodOf(h)} → ${product}: sending change set with ${ops.length} operation(s)…`); [a] = await batchAll([changeSet(ops)]); }
+  const extra = !a || a.status < 300 ? (await sendStawn([{ h, product }])).get(product) : undefined;
+  changeResult(h, product, ops, a, createdNow, extra);
 }
 // Change mode for a package of products: all reads in one $batch, then all change sets (one per product, each atomic)
 // in one $batch. A product whose change set is rejected does not stop the others (continue-on-error).
@@ -1363,18 +1419,22 @@ async function changeChunk(chunk) {
   let t = Date.now();
   const reads = await readMany(todo);
   log(`  ${todo.length} product(s) read in one $batch in ${((Date.now() - t) / 1000).toFixed(1)} s (${todo[0].product} … ${todo[todo.length - 1].product})`);
-  const writes = [];
+  const writes = [], outcome = [];   // outcome: { x, ops, a } per product, settled after the custom-service call
   todo.forEach((x, i) => {
     const r = reads[i];
     if (r.error) { finish(x.h, 'failed', x.product, r.error); log(`${prodOf(x.h)}: ${r.error}`, 'err'); return; }
     const ops = changeOps(x.h, x.item, r.cur, x.product);
-    if (!ops.length) noDifferences(x.h, x.product); else writes.push({ x, ops });
+    if (!ops.length) outcome.push({ x, ops, a: null }); else writes.push({ x, ops });
   });
-  if (!writes.length) return;
-  t = Date.now();
-  const answers = await batchAll(writes.map(w => changeSet(w.ops)));
-  log(`  ${writes.length} change set(s) sent in one $batch in ${((Date.now() - t) / 1000).toFixed(1)} s`);
-  writes.forEach((w, i) => changeResult(w.x.h, w.x.product, w.ops, answers[i] || { status: 0, body: { error: { message: 'no answer' } } }, false));
+  if (writes.length) {
+    t = Date.now();
+    const answers = await batchAll(writes.map(w => changeSet(w.ops)));
+    log(`  ${writes.length} change set(s) sent in one $batch in ${((Date.now() - t) / 1000).toFixed(1)} s`);
+    writes.forEach((w, i) => outcome.push({ x: w.x, ops: w.ops, a: answers[i] || { status: 0, body: { error: { message: 'no answer' } } } }));
+  }
+  // commodity codes of the products whose V4 part succeeded (or had no differences), one POST for the whole package
+  const stawn = await sendStawn(outcome.filter(o => !o.a || o.a.status < 300).map(o => o.x));
+  outcome.forEach(o => changeResult(o.x.h, o.x.product, o.ops, o.a, false, stawn.get(o.x.product)));
 }
 // Create with internal number through the V2 API: basic data (type, industry sector, base unit) and descriptions.
 // Everything else goes through V4 afterwards (step-wise create), compared with what SAP has then.

@@ -114,6 +114,29 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   ok('20e change: weight without unit in the file → the unit currently in SAP is sent along (Product and unit of measure)', p1f.GrossWeight === 0.08 && p1f._ProductUnitOfMeasure[0].GrossWeight === 2.6 && !/needs to be provided/.test(L), `brgew=${p1f.GrossWeight} marm=${p1f._ProductUnitOfMeasure[0].GrossWeight}`);
   await page.evaluate(() => { sheets.S_MARA.rows[0].cells.BRGEW.value = '0.05'; sheets.S_MARA.rows[0].cells.NTGEW.value = '0.045'; sheets.S_MARA.rows[0].cells.GEWEI.value = 'KGM'; sheets.S_MARM.rows[0].cells.BRGEW.value = '2.5'; sheets.S_MARM.rows[0].cells.GEWEI.value = 'KGM'; });
   await page.click('#btnRun'); await waitIdle();
+  // commodity code (MARC-STAWN): not in the Product API; column STAWN of Plant Data goes through the custom ABAP service
+  // after the product's V4 change set (the BAPI moves the ETag), counted as changes, "#" clears, unchanged = no differences
+  const stawnHdr = await page.evaluate(() => { activeTab = 'S_MARC'; renderGrid(); const th = [...document.querySelectorAll('#grid th')].find(t => t.textContent.startsWith('STAWN')); return th ? [th.className, th.textContent] : null; });
+  ok('20f grid: STAWN column of Plant Data shown as custom-service field, not as "not in API"', stawnHdr && stawnHdr[0] === '' && /custom service: MARC-STAWN/.test(stawnHdr[1]), JSON.stringify(stawnHdr));
+  await page.evaluate(() => { activeTab = 'S_MARA'; renderGrid(); });   // the status column is on the Basic Data tab
+  await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = '84099900'; sheets.S_MARA.rows[0].cells.GROES.value = 'M12X55'; });
+  await page.click('#btnDry'); await page.waitForFunction(() => /Commodity code \(STAWN\) filled on 1 plant row/.test(fullLog.join('\n')));
+  await page.click('#btnRun'); await waitIdle(); L = await logText(); st = await api('/__stats');
+  const p1g = await api('/__product?id=ZTEST-001');
+  ok('20g change: commodity code sent to /sap/bc/zmm_matmass/stawn after the V4 change set; both counted (2 changes); old → new logged',
+    p1g._ProductPlant[0].ZZ_STAWN === '84099900' && p1g.SizeOrDimensionText === 'M12X55' && /ZTEST-001 → ZTEST-001: 2 change\(s\)/.test(L) && /ZTEST-001 plant NL01: commodity code "" → "84099900"/.test(L) && st.stawnPosts >= 1,
+    `stawn=${p1g._ProductPlant[0].ZZ_STAWN} groes=${p1g.SizeOrDimensionText} posts=${st.stawnPosts}`);
+  await page.click('#btnRun'); await waitIdle();
+  ok('20h unchanged commodity code and no other difference: "no differences"', /ZTEST-001 → ZTEST-001: no differences/.test(await logText()));
+  await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = '#'; });
+  await page.click('#btnRun'); await waitIdle();
+  const p1h = await api('/__product?id=ZTEST-001'); const stCol = await page.$$eval('#grid td.st', t => t.map(x => x.textContent));
+  ok('20i "#" clears the commodity code through the custom service; status "changed: 1 change(s)" without V4 differences', p1h._ProductPlant[0].ZZ_STAWN === '' && stCol[0] === 'changed: 1 change(s)', `stawn=${JSON.stringify(p1h._ProductPlant[0].ZZ_STAWN)} status=${stCol[0]}`);
+  await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = 'ABC'; });
+  await page.click('#btnDry'); await page.waitForFunction(() => /must be digits/.test(fullLog.join('\n')));
+  ok('20j dry run rejects a non-numeric commodity code', /ZTEST-001 plant NL01: commodity code "ABC" must be digits/.test(await logText()));
+  await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = ''; sheets.S_MARA.rows[0].cells.GROES.value = 'M12X50'; });
+  await page.click('#btnRun'); await waitIdle();
   // Change in packages: all products of a package read in one $batch (filter with "or", $select), all change sets in one $batch;
   // a product that does not exist (ZTEST-003, created only in test 21) is reported and does not stop the others
   const g2 = await page.evaluate(() => sheets.S_MARA.rows[1].cells.GROES.value);
