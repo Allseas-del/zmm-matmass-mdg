@@ -1374,13 +1374,27 @@ function stawnItems(h, product) {
   }
   return out;
 }
+let csrfStawn = null;
+async function fetchStawnToken(svc) {
+  const r = await fetch(withParams(svc), { credentials: 'include', headers: { 'X-CSRF-Token': 'Fetch', Accept: 'application/json' } });
+  const t = await r.text();
+  if (looksLikeLogonPage(r, t)) throw new Error('logon page: session expired');
+  csrfStawn = r.headers.get('x-csrf-token');
+  if (!csrfStawn || csrfStawn.toLowerCase() === 'required') { csrfStawn = null; throw new Error(`no CSRF token from the service (HTTP ${r.status}${r.status === 404 ? ' — ICF node not created or not active (SICF)' : ''})`); }
+}
 async function sendStawn(list) {   // list: [{ h, product }] -> Map product -> { steps, error, labels }
   const res = new Map(); const items = [];
   for (const x of list) { const its = stawnItems(x.h, x.product); if (its.length) { res.set(x.product, { steps: 0, error: '', labels: [] }); items.push(...its); } }
   if (!items.length) return res;
   const svc = $('svcStawn').value.trim(); let j;
   try {
-    const r = await fetch(withParams(svc), { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ items }) });
+    // CSRF: the service only accepts a POST with a token fetched before (GET with "X-CSRF-Token: Fetch"); a token that
+    // expired with the session is answered with 403 and "X-CSRF-Token: Required", then fetched again once.
+    const post = () => fetch(withParams(svc), { method: 'POST', credentials: 'include', body: JSON.stringify({ items }),
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': csrfStawn || '' } });
+    if (!csrfStawn) await fetchStawnToken(svc);
+    let r = await post();
+    if (r.status === 403 && (r.headers.get('x-csrf-token') || '').toLowerCase() === 'required') { await fetchStawnToken(svc); r = await post(); }
     const t = await r.text();
     if (looksLikeLogonPage(r, t)) throw new Error('logon page: session expired');
     try { j = JSON.parse(t); } catch (e) { throw new Error(`HTTP ${r.status}${r.status === 404 ? ' — service not found: ICF node not created or not active (SICF)' : ''}: ${t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 200)}`); }

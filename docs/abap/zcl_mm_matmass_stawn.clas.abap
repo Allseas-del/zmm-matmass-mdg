@@ -4,6 +4,9 @@
 "!
 "! ICF node: /sap/bc/zmm_matmass/stawn (SICF, handler list = this class). See README.md next to this file.
 "!
+"! CSRF   GET with header "X-CSRF-Token: Fetch" returns the token; the POST must send it (403 + "X-CSRF-Token: Required"
+"!        otherwise) and Content-Type application/json (415 otherwise).
+"!
 "! Request  POST, application/json
 "!   { "items": [ { "material": "5000000", "plant": "AF00", "commodityCode": "84099900" }, ... ] }
 "!   commodityCode "" clears the code.
@@ -59,8 +62,36 @@ CLASS zcl_mm_matmass_stawn IMPLEMENTATION.
     DATA ls_request  TYPE ty_request.
     DATA ls_response TYPE ty_response.
 
+    DATA lv_token TYPE string.
+    DATA lv_valid TYPE abap_bool.
+
+    " CSRF protection. The node runs with the launchpad session (cookies), so without a token any other web page
+    " opened in the same browser could post here with the user's rights. Same pattern as SAP Gateway:
+    " 1) GET with header "X-CSRF-Token: Fetch" returns the token in the response header,
+    " 2) POST must carry that token and Content-Type application/json (a cross-site HTML form cannot send JSON).
+    " Methods IF_HTTP_SERVER~GET_XSRF_TOKEN / VALIDATE_XSRF_TOKEN: check the exact signature in SE24 on DS4.
+    IF server->request->get_method( ) = 'GET'
+       AND to_upper( server->request->get_header_field( 'x-csrf-token' ) ) = 'FETCH'.
+      server->get_xsrf_token( IMPORTING token = lv_token ).
+      server->response->set_header_field( name = 'x-csrf-token' value = lv_token ).
+      reply( io_server = server iv_status = 200 iv_json = '{}' ).
+      RETURN.
+    ENDIF.
+
     IF server->request->get_method( ) <> 'POST'.
       reply( io_server = server iv_status = 405 iv_json = '{"message":"POST only"}' ).
+      RETURN.
+    ENDIF.
+
+    IF to_lower( server->request->get_header_field( 'content-type' ) ) NS 'application/json'.
+      reply( io_server = server iv_status = 415 iv_json = '{"message":"Content-Type application/json required"}' ).
+      RETURN.
+    ENDIF.
+
+    server->validate_xsrf_token( IMPORTING successful = lv_valid ).
+    IF lv_valid <> abap_true.
+      server->response->set_header_field( name = 'x-csrf-token' value = 'Required' ).
+      reply( io_server = server iv_status = 403 iv_json = '{"message":"CSRF token validation failed"}' ).
       RETURN.
     ENDIF.
 

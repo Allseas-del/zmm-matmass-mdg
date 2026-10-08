@@ -135,6 +135,16 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = 'ABC'; });
   await page.click('#btnDry'); await page.waitForFunction(() => /must be digits/.test(fullLog.join('\n')));
   ok('20j dry run rejects a non-numeric commodity code', /ZTEST-001 plant NL01: commodity code "ABC" must be digits/.test(await logText()));
+  // CSRF on the custom service: a cross-site style POST (text/plain, no token) and a JSON POST without token are rejected
+  const csrf = await page.evaluate(async () => {
+    const u = withParams($('svcStawn').value.trim()), body = JSON.stringify({ items: [{ material: 'ZTEST-001', plant: 'NL01', commodityCode: '11111111' }] });
+    const a = await fetch(u, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'text/plain' }, body });
+    const b = await fetch(u, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body });
+    return [a.status, b.status, b.headers.get('x-csrf-token')].join(',');
+  });
+  const p1k = await api('/__product?id=ZTEST-001');
+  ok('20k commodity code service: POST as text/plain → 415, JSON without CSRF token → 403 "Required"; nothing changed; the tool itself fetched a token',
+    csrf === '415,403,Required' && p1k._ProductPlant[0].ZZ_STAWN !== '11111111' && /tokstawn-/.test(await page.evaluate(() => csrfStawn || '')), csrf);
   await page.evaluate(() => { sheets.S_MARC.rows[0].cells.STAWN.value = ''; sheets.S_MARA.rows[0].cells.GROES.value = 'M12X50'; });
   await page.click('#btnRun'); await waitIdle();
   // Change in packages: all products of a package read in one $batch (filter with "or", $select), all change sets in one $batch;

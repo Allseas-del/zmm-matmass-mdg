@@ -5,7 +5,7 @@ const http = require('http'), fs = require('fs'), path = require('path'), vm = r
 const PORT = parseInt(process.env.PORT || '8099', 10);
 const SVC = '/sap/opu/odata4/sap/api_product/srvd_a2x/sap/product/0002/';
 const TOOL = path.join(__dirname, '../webapp/tool.html');
-const SVC_V2 = '/sap/opu/odata/sap/API_PRODUCT_SRV/'; const TOKEN_V2 = 'tokv2-' + Date.now();
+const SVC_V2 = '/sap/opu/odata/sap/API_PRODUCT_SRV/'; const TOKEN_V2 = 'tokv2-' + Date.now(); const TOKEN_STAWN = 'tokstawn-' + Date.now();
 
 // --- property lists taken from the tool's own mapping table (what the tool can send) plus keys/computed fields
 const html = fs.readFileSync(TOOL, 'utf8');
@@ -326,7 +326,11 @@ const server = http.createServer((req, res) => {
     // Custom ABAP service for the commodity code (MARC-STAWN), see docs/abap/README.md: the Product API has no such field.
     // Stored on the plant node as ZZ_STAWN (visible in /__product); moves the product's change timestamp like the BAPI does.
     if (u.pathname === '/sap/bc/zmm_matmass/stawn') {
+      // CSRF as in the ABAP handler: GET with "X-CSRF-Token: Fetch" returns the token; POST needs JSON and the token
+      if (req.method === 'GET' && /^fetch$/i.test(req.headers['x-csrf-token'] || '')) return send(200, '{}', 'application/json', { 'x-csrf-token': TOKEN_STAWN });
       if (req.method !== 'POST') return send(405, '{"message":"POST only"}');
+      if (!/^application\/json/i.test(req.headers['content-type'] || '')) { stats.stawnRejected = (stats.stawnRejected || 0) + 1; return send(415, '{"message":"Content-Type application/json required"}'); }
+      if (req.headers['x-csrf-token'] !== TOKEN_STAWN) { stats.stawnRejected = (stats.stawnRejected || 0) + 1; return send(403, '{"message":"CSRF token validation failed"}', 'application/json', { 'x-csrf-token': 'Required' }); }
       stats.stawnPosts = (stats.stawnPosts || 0) + 1;
       let b; try { b = JSON.parse(data || '{}'); } catch (e) { return send(400, '{"message":"invalid JSON"}'); }
       const items = [];

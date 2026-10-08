@@ -17,6 +17,20 @@ No OData, no Gateway registration, no CDS: the handler reads JSON and answers JS
 
 ## Interface
 
+CSRF protection (the node uses the launchpad session, so without it another web page opened in the same browser could
+post here with the user's rights):
+
+```
+GET  /sap/bc/zmm_matmass/stawn          header X-CSRF-Token: Fetch   -> 200, response header X-CSRF-Token: <token>
+POST /sap/bc/zmm_matmass/stawn          header X-CSRF-Token: <token>, Content-Type: application/json
+     without/expired token -> 403 + X-CSRF-Token: Required (the app fetches a new token and retries once)
+     other Content-Type     -> 415
+```
+
+The handler uses `IF_HTTP_SERVER~GET_XSRF_TOKEN` and `~VALIDATE_XSRF_TOKEN`; check their signature in SE24 on DS4 before
+activating (parameter names can differ per release).
+
+
 ```
 POST /sap/bc/zmm_matmass/stawn?sap-client=410
 { "items": [ { "material": "5000000", "plant": "AF00", "commodityCode": "84099900" } ] }
@@ -39,7 +53,8 @@ POST /sap/bc/zmm_matmass/stawn?sap-client=410
 ## Test from a terminal
 
 ```
-curl -u USER -X POST "https://vhlruds4ci.sap.allseas.global:44300/sap/bc/zmm_matmass/stawn?sap-client=410" ^
+curl -u USER -c c.txt -H "X-CSRF-Token: Fetch" -D - "https://vhlruds4ci.sap.allseas.global:44300/sap/bc/zmm_matmass/stawn?sap-client=410"
+curl -u USER -b c.txt -H "X-CSRF-Token: <token from the first call>" -X POST "https://vhlruds4ci.sap.allseas.global:44300/sap/bc/zmm_matmass/stawn?sap-client=410" ^
   -H "Content-Type: application/json" ^
   -d "{\"items\":[{\"material\":\"5000000\",\"plant\":\"AF00\",\"commodityCode\":\"84099900\"}]}"
 ```
