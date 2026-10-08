@@ -301,6 +301,31 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
     new RegExp(`^${want} product\\(s\\) found`).test(cnt2) && want === 1 && fl2.some(x => /^ProductPlantSupplyPlanning:/.test(x) && /MRPType eq 'VB'/.test(x) && /Plant eq 'NL01'/.test(x)) &&
     fl2.some(x => /^Product:startswith\(Product,'ZTEST'\)/.test(x)),
     `options=${opts.length} ops=${opsDismm} | ${cnt2} | expected ${want} | ${fl2.join(' ; ')}`);
+  // fill column: one value into all filtered rows of the active sheet (all pages), "dirty" marking as for typing
+  await page.evaluate(() => { fullLog.length = 0; activeTab = 'S_MARC'; gridPage = 0; $('gridFilter').value = 'ZTEST-001'; renderTabs(); renderGrid(); });
+  await page.selectOption('#fillCol', 'DISMM'); await page.fill('#fillVal', 'PD'); await page.click('#btnFill');
+  const fl = await page.evaluate(() => ({ a: sheets.S_MARC.rows.filter(r => prodOf(r) === 'ZTEST-001').map(r => r.cells.DISMM.value),
+    b: sheets.S_MARC.rows.filter(r => prodOf(r) !== 'ZTEST-001').map(r => r.cells.DISMM.value), dirty: document.querySelectorAll('#grid input.dirty').length,
+    opts: [...document.querySelectorAll('#fillCol option')].map(o => o.value) }));
+  ok('28a fill column: value in the column of every filtered row (filter ZTEST-001), other products untouched, cells marked as changed, product number not offered',
+    fl.a.length > 0 && fl.a.every(v => v === 'PD') && fl.b.every(v => v !== 'PD') && fl.dirty >= fl.a.length && !fl.opts.includes('PRODUCT') && /Fill column: .* DISMM = "PD" in \d+ row/.test(await logText()),
+    JSON.stringify(fl).substring(0, 300));
+  // messages per row: plant row changed, other rows of the product "no differences"
+  await page.evaluate(() => { $('gridFilter').value = ''; sheets.S_MARA.rows.forEach(r => r.include = true); renderGrid(); });
+  await page.check('input[name=mode][value=change]'); await page.click('#btnRun'); await waitIdle();
+  const rm = await page.evaluate(() => ({ marc: sheets.S_MARC.rows.filter(r => prodOf(r) === 'ZTEST-001').map(r => [r.msg, r.msgCls]),
+    marm: sheets.S_MARM.rows.filter(r => prodOf(r) === 'ZTEST-001').map(r => [r.msg, r.msgCls]),
+    cell: (() => { activeTab = 'S_MARC'; renderGrid(); const td = document.querySelector('#grid td.st'); return td ? td.textContent : ''; })() }));
+  ok('28b messages per row after Change: plant row "changed: … MRPType … → "PD"", rows without differences "no differences", Message column on the Plant sheet',
+    rm.marc.length && rm.marc.every(([m, c]) => /^changed: .*MRPType .*→ "PD"/.test(m) && c === 'ok') && rm.marm.every(([m]) => m === 'no differences') && /changed: /.test(rm.cell),
+    JSON.stringify(rm).substring(0, 400));
+  // rejected change set: the rows in it get SAP's message
+  await page.evaluate(() => { sheets.S_MARC.rows.filter(r => prodOf(r) === 'ZTEST-001').forEach(r => r.cells.DISMM.value = 'VB'); sheets.S_MARA.rows[0].cells.MEINS.value = 'XXX'; });
+  await select(['ZTEST-001']); await page.click('#btnRun'); await waitIdle();
+  const rj = await page.evaluate(() => sheets.S_MARC.rows.filter(r => prodOf(r) === 'ZTEST-001').map(r => [r.msg, r.msgCls]));
+  await page.evaluate(() => { sheets.S_MARA.rows[0].cells.MEINS.value = sheets.S_MARA.rows[0].cells.MEINS.orig; });
+  ok('28c rejected change set: rows in it show "not saved (change set of the product rejected): <SAP message>" as error',
+    rj.length && rj.every(([m, c]) => /^not saved \(change set of the product rejected\): HTTP 400: Unit of measure XXX/.test(m) && c === 'err'), JSON.stringify(rj).substring(0, 300));
   ok('26 no JavaScript errors on the page', errors.length === 0, errors.join(' | '));
   await page.screenshot({ path: path.join(__dirname, 'screenshot.png'), fullPage: true });
   await browser.close();

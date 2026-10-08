@@ -206,6 +206,9 @@
   <div class="step-h"><span class="num">3</span><h2>Data (editable)</h2></div>
   <div class="row">
     <label><span class="muted">Filter</span><input type="text" id="gridFilter" size="14" placeholder="Product number"></label>
+    <label><span class="muted">Fill column</span><select id="fillCol" style="max-width:220px"></select></label>
+    <input type="text" id="fillVal" size="12" placeholder="value or #" title="Value for all filtered rows of this sheet (# = clear the field in SAP, mode Change)">
+    <button id="btnFill" title="Put the value into this column of every row that passes the filter (all pages)">Fill</button>
     <span style="margin-left:auto; display:flex; flex-wrap:wrap; gap:8px">
       <button id="btnSelAll">Select all</button><button id="btnSelNone">Select none</button>
       <button id="btnGridDl" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Download (XML)</button>
@@ -690,7 +693,7 @@ function mapFields(node, row, fields) {
 function linked(node, parentRow, row) { return (node.link || []).every(f => val(row, f) === val(parentRow, f)); }
 // Returns { node, data, children: { nav: [items] | item } } for one template row
 function buildNode(node, row, parentRow) {
-  const item = { node: node.id, data: mapFields(node, row, node.fields), children: {} };
+  const item = { node: node.id, data: mapFields(node, row, node.fields), children: {}, row };   // row: source row (messages per row)
   if (node.carry) Object.assign(item.data, mapFields(node, row, node.carry));
   for (const child of TREE.filter(c => c.parent === node.id)) {
     let items = [];
@@ -704,7 +707,7 @@ function buildNode(node, row, parentRow) {
           const cat = val(r, 'TATYP' + i), cls = val(r, 'TAXM' + i); if (!cat) continue;
           const et = typeOf(child.id);
           items.push({ node: child.id, data: { Country: convert(et, 'Country', val(r, 'ALAND')), ProductSalesTaxCategory: convert(et, 'ProductSalesTaxCategory', cat),
-            ...(cls ? { ProductTaxClassification: convert(et, 'ProductTaxClassification', cls) } : {}) }, children: {} });
+            ...(cls ? { ProductTaxClassification: convert(et, 'ProductTaxClassification', cls) } : {}) }, children: {}, row: r });
         }
       }
     } else {
@@ -965,6 +968,7 @@ function renderGrid() {
   const th = (html, cls) => { const c = document.createElement('th'); c.innerHTML = html; if (cls) c.className = cls; hr.appendChild(c); };
   th('✓');
   if (isHdr) { th('SAP product<span class="api">created number / target for Change</span>'); th('Message<span class="api">SAP return message</span>'); }
+  else th('Message<span class="api">SAP return message (this row)</span>');
   const showAll = $('showHidden').checked, nHid = sh.hidden ? sh.hidden.size : 0;
   const fields = showAll || !sh.hidden ? sh.fields : sh.fields.filter(f => !sh.hidden.has(f));
   $('hidCount').textContent = nHid ? `(${nHid} on this sheet)` : '';
@@ -985,6 +989,8 @@ function renderGrid() {
     if (isHdr) {
       const inp = document.createElement('input'); inp.value = r.target || ''; inp.oninput = () => r.target = inp.value.trim(); tr.insertCell().appendChild(inp); r.targetEl = inp;
       const st = tr.insertCell(); st.className = 'st ' + (r.statusCls || ''); st.textContent = r.status || ''; st.title = r.status || ''; r.statusEl = st;
+    } else {
+      const st = tr.insertCell(); st.className = 'st ' + (r.msgCls || ''); st.textContent = r.msg || ''; st.title = r.msg || ''; r.msgEl = st;
     }
     for (const f of fields) {
       const c = r.cells[f]; const inp = document.createElement('input'); inp.value = c.value; inp.title = f;
@@ -994,6 +1000,25 @@ function renderGrid() {
     }
   });
   grid.innerHTML = ''; grid.appendChild(t);
+  // column list of "Fill column" (visible columns of this sheet, without the product number)
+  const fc = $('fillCol'), keep = fc.value;
+  fc.innerHTML = fields.filter(f => f !== 'PRODUCT').map(f => `<option value="${f}">${f} – ${(sh.descr && sh.descr[f]) || ''}</option>`).join('');
+  if (fields.includes(keep)) fc.value = keep;
+}
+// Rows of the active sheet that pass the grid filter (all pages)
+function filteredRows() {
+  const sh = sheets[activeTab]; if (!sh) return [];
+  const flt = $('gridFilter').value.trim().toUpperCase();
+  return flt ? sh.rows.filter(r => prodOf(r).toUpperCase().includes(flt)) : sh.rows;
+}
+// Fill column: one value into the column of every filtered row of the active sheet ("#" clears the field in Change)
+function fillColumn() {
+  const f = $('fillCol').value, v = $('fillVal').value;
+  if (!f) return;
+  const rows = filteredRows().filter(r => r.cells[f]);
+  rows.forEach(r => { r.cells[f].value = v; });
+  renderGrid();
+  log(`Fill column: ${sheets[activeTab].name} ${f} = "${v}" in ${rows.length} row(s)${$('gridFilter').value.trim() ? ` (filter "${$('gridFilter').value.trim()}")` : ''}.`, 'ok');
 }
 function rebuild() { buildIndex(); renderTabs(); renderGrid(); }
 
@@ -1083,6 +1108,11 @@ function same(a, b) {
 }
 function ifMatch(cur) { return { 'If-Match': (cur && cur['@odata.etag']) || '*' }; }
 // Compares the desired tree with the current state from SAP and returns the requests for one change set
+function rowsOfItem(item, acc = new Set()) {   // source rows of an item and its children (a POST creates them all)
+  if (item.row) acc.add(item.row);
+  for (const c of Object.values(item.children)) (Array.isArray(c) ? c : [c]).forEach(x => rowsOfItem(x, acc));
+  return [...acc];
+}
 function diffOps(item, cur, url, ops, label) {
   const type = typeOf(item.node); const keys = keysOf(type);
   const d = {};
@@ -1108,21 +1138,21 @@ function diffOps(item, cur, url, ops, label) {
     }
     if (item.node !== 'Product') for (const r of ['Currency', 'BaseISOUnit']) if (item.data[r] !== undefined) d[r] = item.data[r];
   }
-  if (Object.keys(d).length) ops.push({ method: 'PATCH', path: url, body: d, headers: ifMatch(cur), label: `${label}: ${Object.keys(d).map(k => `${k} ${JSON.stringify(cur[k] ?? '')} → ${JSON.stringify(d[k])}`).join(', ')}` });
+  if (Object.keys(d).length) ops.push({ method: 'PATCH', path: url, body: d, headers: ifMatch(cur), rows: [item.row], label: `${label}: ${Object.keys(d).map(k => `${k} ${JSON.stringify(cur[k] ?? '')} → ${JSON.stringify(d[k])}`).join(', ')}` });
   for (const [nav, c] of Object.entries(item.children)) {
     const node = NODE[(Array.isArray(c) ? c[0] : c).node];
     const curC = cur[nav];
     if (!node.many) {
       // DS4 only accepts modifying requests on the canonical URL or one containment navigation from it
       if (curC) diffOps(c, curC, entityUrl(typeOf(c.node), curC), ops, `${label} ${nav}`);
-      else ops.push({ method: 'POST', path: `${url}/${nav}`, body: toPayload(c), label: `${label} ${nav} created` });
+      else ops.push({ method: 'POST', path: `${url}/${nav}`, body: toPayload(c), rows: rowsOfItem(c), label: `${label} ${nav} created` });
       continue;
     }
     for (const it of c) {
       const ex = (curC || []).find(x => node.match.every(k => same(it.data[k], x[k])));
       const tag = node.match.map(k => it.data[k]).join('/');
       if (ex) diffOps(it, ex, entityUrl(typeOf(node.id), ex), ops, `${label} ${nav}(${tag})`);
-      else ops.push({ method: 'POST', path: `${url}/${nav}`, body: toPayload(it), label: `${label} ${nav}(${tag}) created` });
+      else ops.push({ method: 'POST', path: `${url}/${nav}`, body: toPayload(it), rows: rowsOfItem(it), label: `${label} ${nav}(${tag}) created` });
     }
   }
   return ops;
@@ -1220,6 +1250,39 @@ function setStatus(r, text, cls) {
   if (r.statusEl && r.statusEl.isConnected) { r.statusEl.textContent = text; r.statusEl.title = text; r.statusEl.className = 'st ' + (cls || ''); }
   if (r.targetEl && r.targetEl.isConnected && r.target !== undefined) r.targetEl.value = r.target;
 }
+// Message per row on every sheet except Basic Data (which has the product's status column). runNo marks the rows
+// that got their own message in this run; finish() fills the others with the product's outcome.
+let runNo = 0;
+function setRowMsg(r, text, cls) {
+  r.msg = text; r.msgCls = cls; r.msgRun = runNo;
+  if (r.msgEl && r.msgEl.isConnected) { r.msgEl.textContent = text; r.msgEl.title = text; r.msgEl.className = 'st ' + (cls || ''); }
+}
+function productRowsAll(h) {   // [sheet, row] of the product's included rows on the other sheets
+  const out = [];
+  for (const [s, m] of Object.entries(index)) { if (s === 'S_MARA' || NOT_SUPPORTED[s]) continue; for (const r of m.get(prodOf(h)) || []) if (r.include) out.push([s, r]); }
+  return out;
+}
+// Does SAP's message name this row? (all its key values, e.g. "Valuation US10", appear as whole words)
+function keyHit(sheet, r, text) {
+  const ks = (SHEET_KEYS[sheet] || []).filter(k => k !== 'PRODUCT').map(k => val(r, k)).filter(Boolean);
+  return ks.length > 0 && ks.every(v => new RegExp(`(^|[^A-Za-z0-9])${v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9]|$)`).test(text));
+}
+// Change mode: outcome per row from the change set (ops carry their source rows) and the commodity code per plant
+function rowResults(h, product, ops, a, ex) {
+  const all = productRowsAll(h), msgs = new Map();
+  const add = (r, t, cls) => { const m = msgs.get(r) || { t: [], cls: 'ok' }; m.t.push(t); if (cls === 'err') m.cls = 'err'; msgs.set(r, m); };
+  const short = l => (l.startsWith(product) ? l.slice(product.length) : l).trim();
+  const rejected = a && !(a.status >= 200 && a.status < 300);
+  if (rejected) {
+    const msg = errText(a.body, a.status), inOps = new Set(ops.flatMap(o => o.rows || []));
+    for (const [s, r] of all) {
+      if (keyHit(s, r, msg)) add(r, msg, 'err');
+      else if (inOps.has(r)) add(r, `not saved (change set of the product rejected): ${msg}`, 'err');
+    }
+  } else for (const o of ops) for (const r of o.rows || []) add(r, `${o.method === 'POST' ? 'created' : 'changed'}: ${short(o.label)}`, 'ok');
+  for (const p of (ex && ex.plants) || []) { const hit = all.find(([s, x]) => s === 'S_MARC' && val(x, 'WERKS') === p.plant); if (hit) add(hit[1], p.text, p.cls); }
+  for (const [, r] of all) { const m = msgs.get(r); if (m) setRowMsg(r, m.t.join(' | '), m.cls); else if (!rejected) setRowMsg(r, 'no differences', 'ok'); }
+}
 function result(h) {
   const k = prodOf(h); let r = results.get(k);
   if (!r) { r = { src: k, product: '', status: 'open', steps: 0, message: '' }; results.set(k, r); }
@@ -1277,6 +1340,12 @@ function finish(h, status, product, message, steps) {
     ? (mode() === 'create' ? `created ${product || ''}` : message === 'no differences' ? 'no differences' : `changed: ${steps || 0} change(s)`)
     : status === 'partial' ? `partial ${product || ''}: ${message || ''}` : message || 'error';
   setStatus(h, text, status === 'done' ? 'ok' : 'err');
+  // rows without their own message in this run get the product's outcome (Create: deep insert, one result for all)
+  for (const [s, r] of productRowsAll(h)) {
+    if (r.msgRun === runNo) continue;
+    if (status === 'done') setRowMsg(r, text, 'ok');
+    else setRowMsg(r, keyHit(s, r, message || '') ? (message || 'error') : `not saved: ${message || 'error'}`, 'err');
+  }
 }
 
 // Rows that miss an identifying field (e.g. a plant row without plant) cannot be created
@@ -1348,6 +1417,7 @@ const changeSet = ops => ({ changeset: ops.map(o => ({ method: o.method, path: o
 // (extra = { steps, error, labels } from sendStawn, undefined when the file has no STAWN for this product).
 function changeResult(h, product, ops, a, createdNow, extra) {
   const ex = extra || { steps: 0, error: '', labels: [] };
+  rowResults(h, product, ops, a, ex);
   if (!a || (a.status >= 200 && a.status < 300)) {
     ops.forEach(o => log(`  ${o.label}`)); ex.labels.forEach(l => log(`  ${l}`));
     const n = ops.length + ex.steps;
@@ -1433,7 +1503,7 @@ async function stawnBatch(items) {   // -> [{ status, body }] in the order of it
 }
 async function sendStawn(list) {   // list: [{ h, product }] -> Map product -> { steps, error, labels }
   const res = new Map(); const items = [];
-  for (const x of list) { const its = stawnItems(x.h, x.product); if (its.length) { res.set(x.product, { steps: 0, error: '', labels: [] }); items.push(...its); } }
+  for (const x of list) { const its = stawnItems(x.h, x.product); if (its.length) { res.set(x.product, { steps: 0, error: '', labels: [], plants: [] }); items.push(...its); } }
   if (!items.length) return res;
   let answers;
   try { answers = await stawnBatch(items); }
@@ -1441,9 +1511,10 @@ async function sendStawn(list) {   // list: [{ h, product }] -> Map product -> {
   items.forEach((it, i) => {
     const v = res.get(it.material), a = answers[i] || { status: 0, body: null };
     const d = a.body && a.body.d && (a.body.d[stawnFn] || a.body.d);
-    if (!(a.status >= 200 && a.status < 300) || !d) { v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${v2Err(a.body, a.status)}`; return; }
-    if (d.MessageType === 'E' || d.MessageType === 'A') v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${d.Message}`;
-    else if (d.Changed === true || d.Changed === 'X') { v.steps++; v.labels.push(`${it.material} plant ${it.plant}: commodity code ${JSON.stringify(d.Previous || '')} → ${JSON.stringify(d.Code || '')}`); }
+    if (!(a.status >= 200 && a.status < 300) || !d) { const m = v2Err(a.body, a.status); v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${m}`; v.plants.push({ plant: it.plant, text: `commodity code: ${m}`, cls: 'err' }); return; }
+    if (d.MessageType === 'E' || d.MessageType === 'A') { v.error = (v.error ? v.error + ' | ' : '') + `plant ${it.plant}: ${d.Message}`; v.plants.push({ plant: it.plant, text: `commodity code: ${d.Message}`, cls: 'err' }); }
+    else if (d.Changed === true || d.Changed === 'X') { v.steps++; v.labels.push(`${it.material} plant ${it.plant}: commodity code ${JSON.stringify(d.Previous || '')} → ${JSON.stringify(d.Code || '')}`); v.plants.push({ plant: it.plant, text: `commodity code ${JSON.stringify(d.Previous || '')} → ${JSON.stringify(d.Code || '')} (${d.Message})`, cls: 'ok' }); }
+    else if (d.Message && d.Message !== 'unchanged') v.plants.push({ plant: it.plant, text: `commodity code: ${d.Message}`, cls: 'ok' });
   });
   return res;
 }
@@ -1586,6 +1657,7 @@ $('btnRun').onclick = async () => {
   const size = Math.max(1, Math.min(100, parseInt($('batchSize').value, 10) || 1));
   stopRequested = false; $('btnRun').disabled = true; $('btnStop').disabled = false;
   const t0 = Date.now(); let finished = 0;
+  runNo++; hs.forEach(h => { productRowsAll(h).forEach(([, r]) => { r.msg = ''; r.msgCls = ''; }); });
   hs.forEach(h => { const r = results.get(prodOf(h)); if (r) r.status = 'open'; }); runCount.ok = 0; runCount.bad = 0; let lastSave = Date.now();   // meter counts this run only (hs holds no done products in Create)
   const progress = () => {
     const sec = (Date.now() - t0) / 1000, rate = finished / Math.max(sec, 1);
@@ -2107,6 +2179,7 @@ async function readV2Fields(products, sel, rowsBySheet) {
 }
 
 $('gridFilter').oninput = () => { gridPage = 0; renderGrid(); };
+$('btnFill').onclick = fillColumn;
 $('showHidden').onchange = () => renderGrid();
 $('btnPrev').onclick = () => { gridPage = Math.max(0, gridPage - 1); renderGrid(); };
 $('btnNext').onclick = () => { gridPage++; renderGrid(); };

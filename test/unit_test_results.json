@@ -192,7 +192,7 @@
  {
   "name": "24a after reload: log and results of the last run available",
   "pass": true,
-  "info": "Last run: 10/8/2026, 4:23:24 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
+  "info": "Last run: 10/8/2026, 4:43:23 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "24 resume: results loaded, done products deselected",
@@ -227,7 +227,7 @@
  {
   "name": "25d end of run: log and results downloaded automatically, last run kept in the browser (after reload too)",
   "pass": true,
-  "info": "roundtrip_results_2026-10-08-14-23-25.csv, template_download_log_2026-10-08-14-23-25.txt, roundtrip_results_2026-10-08-14-23-25.csv, template_download_results_2026-10-08-14-23-25.csv | finished: 0 ok, 1 with errors of 1"
+  "info": "roundtrip_results_2026-10-08-14-43-24.csv, template_download_log_2026-10-08-14-43-25.txt, template_download_results_2026-10-08-14-43-25.csv | finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "27 read from SAP: criteria (starts with ZTEST, exclude ZTEST-003) → 2 products; selected fields of 3 sheets in the Product template (description EN, base unit), one $batch read, $select",
@@ -247,12 +247,27 @@
  {
   "name": "27b download: Product template with the SAP rows and hidden columns (ss:Hidden), loads again (hidden columns kept), Change on the unchanged file gives \"no differences\"",
   "pass": true,
-  "info": "Product_from_SAP_session_2026-10-08-14-23.xml rows=2 hiddenKept=true"
+  "info": "Product_from_SAP_session_2026-10-08-14-43.xml rows=2 hiddenKept=true"
  },
  {
   "name": "27c any template field as criterion: Plant NL01 and MRP type VB on the same plant row (ProductPlantSupplyPlanning filtered on Plant too), material number \"ztest\" upper-cased; not filterable field (BISMT) not offered; operators by type",
   "pass": true,
   "info": "options=361 ops=eq,bt,sw | 1 product(s) found (0.0 s) | expected 1 | ProductPlant:Plant eq 'NL01' ; ProductPlantSupplyPlanning:MRPType eq 'VB' and Plant eq 'NL01' ; Product:startswith(Product,'ZTEST')"
+ },
+ {
+  "name": "28a fill column: value in the column of every filtered row (filter ZTEST-001), other products untouched, cells marked as changed, product number not offered",
+  "pass": true,
+  "info": "{\"a\":[\"PD\"],\"b\":[\"ND\"],\"dirty\":1,\"opts\":[\"WERKS\",\"DISMM\",\"STAWN\"]}"
+ },
+ {
+  "name": "28b messages per row after Change: plant row \"changed: … MRPType … → \"PD\"\", rows without differences \"no differences\", Message column on the Plant sheet",
+  "pass": true,
+  "info": "{\"marc\":[[\"changed: _ProductPlant(NL01) _ProductPlantSupplyPlanning: MRPType \\\"VB\\\" → \\\"PD\\\"\",\"ok\"]],\"marm\":[[\"no differences\",\"ok\"]],\"cell\":\"changed: _ProductPlant(NL01) _ProductPlantSupplyPlanning: MRPType \\\"VB\\\" → \\\"PD\\\"\"}"
+ },
+ {
+  "name": "28c rejected change set: rows in it show \"not saved (change set of the product rejected): <SAP message>\" as error",
+  "pass": true,
+  "info": "[[\"not saved (change set of the product rejected): HTTP 400: Unit of measure XXX (ISO) is not defined\",\"err\"]]"
  },
  {
   "name": "26 no JavaScript errors on the page",

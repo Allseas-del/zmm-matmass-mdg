@@ -27,7 +27,7 @@
 <body>
 <main>
 <h1>Material Master Mass Upload – Acceptance Test</h1>
-<div class="muted">App <em>Material Master Mass Upload</em> (BSP ZMM_MATMASS_MDG) on DS4 client 410 · LTMC template "Product" → API_PRODUCT_2 · version 0.3, 25 September 2026</div>
+<div class="muted">App <em>Material Master Mass Upload</em> (BSP ZMM_MATMASS_MDG) on DS4 client 410 · LTMC template "Product" → API_PRODUCT_2 · version 0.11, 8 October 2026</div>
 
 <div class="row">
   <div><label>Tester</label><input type="text" id="tester"></div>
@@ -85,7 +85,11 @@ const STEPS = [
   ['Click "Download template (XML)" and open the file in Excel.', 'The Product template opens; the selected fields and keys are visible, the other columns hidden (to unhide: unprotect the sheet). Values as in SAP.'],
   ['Change one value in the grid (e.g. Gross Weight of one unit) and click "Execute in SAP".', 'Log: the changed material "1 change(s)", the other "no differences". The value is changed in SAP.'],
   ['Read from SAP with a criterion on Plant (e.g. your plant) and Material Type; note the number of products and the time in the remarks.', 'The products of that plant and type are read; the time per package is in the log.'],
-  ['Optional: run ~100 materials to measure throughput (progress line).', 'Note the throughput (products/s) and total duration in the remarks.']
+  ['Optional: run ~100 materials to measure throughput (progress line).', 'Note the throughput (products/s) and total duration in the remarks.'],
+  ['Commodity code: on tab Plant Data fill column STAWN for one material and plant (e.g. 84099900) and Execute in mode Change.', 'Log and the Message column of that plant row: commodity code "old" → "new" (valid from today). SE16N /SAPSLL/MARITC: old code ends yesterday, new code from today; MM03 shows the new code for all plants of that country.'],
+  ['Read from SAP with field Commodity Code (STAWN, "V2 API (read only)") selected.', 'Column STAWN on tab Plant Data shows the codes as in MM03 (e.g. "840999 00").'],
+  ['Tab Data: filter on one material, choose a column in "Fill column" (e.g. MRP Type on Plant Data), enter a value and click Fill.', 'All rows of that material on that sheet (also on other pages) get the value and are marked yellow; other materials unchanged; the log names column, value and number of rows.'],
+  ['Execute in mode Change after the previous step, then look at column Message on the Plant Data tab.', 'Each plant row shows "changed: … MRPType … → …"; rows without a change "no differences". With an invalid value: the rows of that material show "not saved (change set of the product rejected): <SAP message>".']
 ];
 const tbl = document.getElementById('steps');
 STEPS.forEach(([a, e], i) => {
