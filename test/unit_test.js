@@ -364,6 +364,16 @@ const select = async ids => page.evaluate(ids => sheets.S_MARA.rows.forEach(r =>
   const reo = await page.evaluate(x => { const r = parseWorkbook(x); return [r.sheets.S_MARC.fields.slice(0, 4).join(','), r.sheets.S_MARC.rows.length, r.sheets.S_MARA.fields.includes('GROES')].join('|'); }, fs.readFileSync(oPath, 'utf8'));
   ok('29d column order: Plant Data starts with PRODUCT, WERKS, STAWN, DISMM in the grid and in the downloaded file (loads again, values kept)',
     ord.f === 'PRODUCT,WERKS,STAWN,DISMM' && ord.grid === 'PRODUCT,WERKS,STAWN,DISMM' && ord.n > 0 && reo === `PRODUCT,WERKS,STAWN,DISMM|${ord.n}|true`, JSON.stringify(ord) + ' | ' + reo);
+  // AESZN (document change number): Allseas column on Basic Data, Product.ProductDocumentChangeNumber
+  await page.evaluate(() => { fullLog.length = 0; readSel.clear(); readSel.add('S_MARA.AESZN'); document.querySelector('input[name=scope][value=fields]').checked = true;
+    $('critRows').innerHTML = ''; addCrit('I', 'S_MARA.PRODUCT', 'eq', 'ZTEST-001'); renderTokens(); });
+  const ae = await page.evaluate(() => ({ crit: critOptionsHtml('AESZN').includes('S_MARA.AESZN'), node: !!nodeOfField('S_MARA', 'AESZN') }));
+  await page.click('#btnRead'); await page.waitForFunction(() => /hidden|rror|No /.test(document.getElementById('readState').textContent) && !document.getElementById('btnRead').disabled);
+  await page.evaluate(() => { sheets.S_MARA.rows[0].cells.AESZN.value = 'A00012'; });
+  await page.check('input[name=mode][value=change]'); await page.click('#btnRun'); await waitIdle();
+  const pae = await api('/__product?id=ZTEST-001'); L = await logText();
+  ok('30 AESZN (document change no.): column on Basic Data, offered as field and criterion, read from SAP, Change sends ProductDocumentChangeNumber',
+    ae.crit && ae.node && pae.ProductDocumentChangeNumber === 'A00012' && /ProductDocumentChangeNumber "" → "A00012"/.test(L), `${JSON.stringify(ae)} value=${pae.ProductDocumentChangeNumber}`);
   ok('26 no JavaScript errors on the page', errors.length === 0, errors.join(' | '));
   await page.screenshot({ path: path.join(__dirname, 'screenshot.png'), fullPage: true });
   await browser.close();

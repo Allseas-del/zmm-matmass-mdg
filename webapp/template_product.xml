@@ -8237,6 +8237,7 @@ migration cockpit.
 <Column ss:StyleID="FIELD" ss:Width="120"/>
 <Column ss:StyleID="FIELD" ss:Width="120"/>
 <Column ss:StyleID="FIELD" ss:Width="120"/>
+   <Column ss:Index="146" ss:StyleID="FIELD" ss:Width="120"/>
       <Row ss:AutoFitHeight="0" ss:Height="30" ss:StyleID="TITLE">
         <Cell ss:MergeAcross="14">
           <Data ss:Type="String">Source Data for Migration Object:  Product</Data>
@@ -8405,7 +8406,7 @@ migration cockpit.
 <Cell ss:Index="143"><Data ss:Type="String">ZZ1_NMOD_PRD</Data></Cell>
 <Cell ss:Index="144"><Data ss:Type="String">ZZ1_SERNP_PRD</Data></Cell>
 <Cell ss:Index="145"><Data ss:Type="String">ZZ1_WNFI_PRD</Data></Cell>
-      </Row>
+      <Cell ss:Index="146"><Data ss:Type="String">AESZN</Data></Cell></Row>
       <Row ss:AutoFitHeight="0" ss:Hidden="1">
 <Cell ss:Index="001"><Data ss:Type="String">ETE;80;0;C;80;0</Data></Cell>
 <Cell ss:Index="002"><Data ss:Type="String">ETE;80;0;C;80;0</Data></Cell>
@@ -8552,7 +8553,7 @@ migration cockpit.
 <Cell ss:Index="143"><Data ss:Type="String">ETE;30;0;C;30;0</Data></Cell>
 <Cell ss:Index="144"><Data ss:Type="String">ETE;1;0;C;1;0</Data></Cell>
 <Cell ss:Index="145"><Data ss:Type="String">ETE;100;0;C;100;0</Data></Cell>
-      </Row>
+      <Cell ss:Index="146"><Data ss:Type="String">ETE;6;0;C;6;0</Data></Cell></Row>
       <Row ss:AutoFitHeight="0">
 <Cell ss:MergeAcross="000" ss:StyleID="C_HEADER1"><Data ss:Type="String">Key</Data></Cell>
 <Cell ss:MergeAcross="000" ss:StyleID="C_HEADER1"><Data ss:Type="String">Header Data</Data></Cell>
@@ -8594,7 +8595,7 @@ migration cockpit.
 <Cell ss:MergeAcross="003" ss:StyleID="C_HEADER1"><Data ss:Type="String">Select Views/Maintenance Status</Data></Cell>
 <Cell ss:MergeAcross="001" ss:StyleID="C_HEADER1"><Data ss:Type="String">Custom Field</Data></Cell>
 <Cell ss:MergeAcross="006" ss:StyleID="C_HEADER1"><Data ss:Type="String">Key User Extensibility Fields</Data></Cell>
-      </Row>
+      <Cell ss:Index="146" ss:StyleID="C_HEADER1"><Data ss:Type="String">Allseas: document data</Data></Cell></Row>
       <Row ss:AutoFitHeight="0">
 <Cell ss:StyleID="C_HEADER2" ss:Index="001"><Data ss:Type="String">Product Number*&#10;&#10;A key that uniquely identifies the product.&#10;&#10;Type: Text&#10;Length: 80</Data></Cell>
 <Cell ss:StyleID="C_HEADER2" ss:Index="002"><Data ss:Type="String">Product Type*&#10;&#10;Key that assigns the product to a group of products such as raw product, finished product or trading goods.&#10;&#10;Type: Text&#10;Length: 80</Data></Cell>
@@ -8741,7 +8742,9 @@ migration cockpit.
 <Cell ss:StyleID="C_HEADER2" ss:Index="143"><Data ss:Type="String">Noun and Modifier&#10;&#10;Type: Text&#10;Length: 30</Data></Cell>
 <Cell ss:StyleID="C_HEADER2" ss:Index="144"><Data ss:Type="String">Serialized&#10;&#10;Type: Text&#10;Length: 1</Data></Cell>
 <Cell ss:StyleID="C_HEADER2" ss:Index="145"><Data ss:Type="String">Others&#10;&#10;Type: Text&#10;Length: 100</Data></Cell>
-      </Row>
+      <Cell ss:Index="146" ss:StyleID="C_HEADER2"><Data ss:Type="String">Document change no. (MARA-AESZN)
+
+Allseas extension: not in the Migration Cockpit template; written and read through the Product API (ProductDocumentChangeNumber). Max 6 characters; # clears the field.</Data></Cell></Row>
     <Row><Cell ss:Index="1"><Data ss:Type="String">HAWA-001</Data></Cell><Cell ss:Index="2"><Data ss:Type="String">HAWA</Data></Cell><Cell ss:Index="5"><Data ss:Type="String">I079-125</Data></Cell><Cell ss:Index="6"><Data ss:Type="String">M</Data></Cell><Cell ss:Index="7"><Data ss:Type="String">E-CABLE,HELKMA,EXAMPLE</Data></Cell><Cell ss:Index="8"><Data ss:Type="String">EN</Data></Cell><Cell ss:Index="9"><Data ss:Type="String">MTR</Data></Cell><Cell ss:Index="15"><Data ss:Type="String">0234114</Data></Cell><Cell ss:Index="23"><Data ss:Type="String">LKSM-HF NORMAL</Data></Cell><Cell ss:Index="24"><Data ss:Type="String">3X4MM2 0.6/1KV</Data></Cell><Cell ss:Index="33"><Data ss:Type="String">02</Data></Cell><Cell ss:Index="34"><Data ss:Type="DateTime">2024-12-19T00:00:00.000</Data></Cell><Cell ss:Index="39"><Data ss:Type="Number">0.2</Data></Cell><Cell ss:Index="40"><Data ss:Type="Number">0.2</Data></Cell><Cell ss:Index="41"><Data ss:Type="String">KGM</Data></Cell><Cell ss:Index="52"><Data ss:Type="String">7</Data></Cell><Cell ss:Index="53"><Data ss:Type="String">1</Data></Cell><Cell ss:Index="58"><Data ss:Type="String">STND</Data></Cell></Row>
 <Row><Cell ss:Index="1"><Data ss:Type="String">SERV-001</Data></Cell><Cell ss:Index="2"><Data ss:Type="String">SERV</Data></Cell><Cell ss:Index="5"><Data ss:Type="String">I037-108</Data></Cell><Cell ss:Index="6"><Data ss:Type="String">M</Data></Cell><Cell ss:Index="7"><Data ss:Type="String">SERVICE EXAMPLE</Data></Cell><Cell ss:Index="8"><Data ss:Type="String">EN</Data></Cell><Cell ss:Index="9"><Data ss:Type="String">C62</Data></Cell><Cell ss:Index="33"><Data ss:Type="String">02</Data></Cell><Cell ss:Index="34"><Data ss:Type="DateTime">2026-04-24T00:00:00.000</Data></Cell><Cell ss:Index="52"><Data ss:Type="String">7</Data></Cell><Cell ss:Index="53"><Data ss:Type="String">1</Data></Cell></Row>
 </Table>

@@ -192,7 +192,7 @@
  {
   "name": "24a after reload: log and results of the last run available",
   "pass": true,
-  "info": "Last run: 10/8/2026, 5:32:53 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
+  "info": "Last run: 10/9/2026, 4:45:04 PM · test_products.xml · finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "24 resume: results loaded, done products deselected",
@@ -227,7 +227,7 @@
  {
   "name": "25d end of run: log and results downloaded automatically, last run kept in the browser (after reload too)",
   "pass": true,
-  "info": "roundtrip_results_2026-10-08-15-32-54.csv, template_download_log_2026-10-08-15-32-55.txt, template_download_results_2026-10-08-15-32-55.csv | finished: 0 ok, 1 with errors of 1"
+  "info": "roundtrip_results_2026-10-09-14-45-05.csv, template_download_log_2026-10-09-14-45-06.txt, template_download_results_2026-10-09-14-45-06.csv | finished: 0 ok, 1 with errors of 1"
  },
  {
   "name": "27 read from SAP: criteria (starts with ZTEST, exclude ZTEST-003) → 2 products; selected fields of 3 sheets in the Product template (description EN, base unit), one $batch read, $select",
@@ -242,17 +242,17 @@
  {
   "name": "27a columns: not selected and empty hidden (BISMT), selected and keys visible (GROES, PRODUCT, BRGEW), grid shows only visible columns; mode set to Change",
   "pass": true,
-  "info": "hidden=true,false,false,false,true mode=change gridColumns=8 | 2 product(s) read · 0 error(s) · 3 sheet(s) with data · 294 column(s) hidden · 0.2 s"
+  "info": "hidden=true,false,false,false,true mode=change gridColumns=8 | 2 product(s) read · 0 error(s) · 3 sheet(s) with data · 295 column(s) hidden · 0.1 s"
  },
  {
   "name": "27b download: Product template with the SAP rows and hidden columns (ss:Hidden), loads again (hidden columns kept), Change on the unchanged file gives \"no differences\"",
   "pass": true,
-  "info": "Product_from_SAP_session_2026-10-08-15-32.xml rows=2 hiddenKept=true"
+  "info": "Product_from_SAP_session_2026-10-09-14-45.xml rows=2 hiddenKept=true"
  },
  {
   "name": "27c any template field as criterion: Plant NL01 and MRP type VB on the same plant row (ProductPlantSupplyPlanning filtered on Plant too), material number \"ztest\" upper-cased; not filterable field (BISMT) not offered; operators by type",
   "pass": true,
-  "info": "options=361 ops=eq,bt,sw | 1 product(s) found (0.0 s) | expected 1 | ProductPlant:Plant eq 'NL01' ; ProductPlantSupplyPlanning:MRPType eq 'VB' and Plant eq 'NL01' ; Product:startswith(Product,'ZTEST')"
+  "info": "options=362 ops=eq,bt,sw | 1 product(s) found (0.0 s) | expected 1 | ProductPlant:Plant eq 'NL01' ; ProductPlantSupplyPlanning:MRPType eq 'VB' and Plant eq 'NL01' ; Product:startswith(Product,'ZTEST')"
  },
  {
   "name": "28a fill column: value in the column of every filtered row (filter ZTEST-001), other products untouched, cells marked as changed, product number not offered",
@@ -277,7 +277,7 @@
  {
   "name": "29b criterion: typing in \"search field\" shortens the field list (bklas → valuation class), first hit selected",
   "pass": true,
-  "info": "{\"all\":361,\"opts\":[\"S_MBEW.BKLAS\"],\"val\":\"S_MBEW.BKLAS\"}"
+  "info": "{\"all\":362,\"opts\":[\"S_MBEW.BKLAS\"],\"val\":\"S_MBEW.BKLAS\"}"
  },
  {
   "name": "29c scope templates: saved with field order, ‹ › changes the order, choosing the template restores the saved order, export → import restores it",
@@ -288,6 +288,11 @@
   "name": "29d column order: Plant Data starts with PRODUCT, WERKS, STAWN, DISMM in the grid and in the downloaded file (loads again, values kept)",
   "pass": true,
   "info": "{\"f\":\"PRODUCT,WERKS,STAWN,DISMM\",\"n\":3,\"v\":\"PD,ND,ND\",\"grid\":\"PRODUCT,WERKS,STAWN,DISMM\"} | PRODUCT,WERKS,STAWN,DISMM|3|true"
+ },
+ {
+  "name": "30 AESZN (document change no.): column on Basic Data, offered as field and criterion, read from SAP, Change sends ProductDocumentChangeNumber",
+  "pass": true,
+  "info": "{\"crit\":true,\"node\":true} value=A00012"
  },
  {
   "name": "26 no JavaScript errors on the page",
